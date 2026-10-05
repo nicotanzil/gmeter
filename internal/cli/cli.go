@@ -15,9 +15,10 @@ import (
 	"gmeter/internal/distributed"
 	"gmeter/internal/engine"
 	"gmeter/internal/report"
+	"gmeter/internal/telemetry"
 )
 
-const Version = "0.5.0-dev"
+const Version = "0.6.0-dev"
 
 const help = `gmeter — HTTP load and stress testing
 
@@ -193,6 +194,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	diagnostics := fs.Bool("diagnostics", true, "record generator resources and detailed HTTP timing")
 	workers := fs.String("workers", "", "comma-separated worker origins; rate mode only; authentication uses GMETER_WORKER_TOKEN")
 	workerCA := fs.String("worker-ca", os.Getenv("GMETER_WORKER_CA"), "optional PEM CA file for worker HTTPS certificates")
+	targetTelemetry := fs.Bool("telemetry", true, "collect configured target-server metrics; false disables telemetry")
+	telemetryCA := fs.String("telemetry-ca", os.Getenv("GMETER_TELEMETRY_CA"), "optional PEM CA file for telemetry HTTPS certificates")
 	if err := fs.Parse(args); err != nil {
 		if err == flag.ErrHelp {
 			return 0
@@ -210,6 +213,9 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	}
 	set := map[string]bool{}
 	fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
+	if !*targetTelemetry {
+		c.Telemetry = nil
+	}
 	if set["url"] {
 		c.URL = *url
 	}
@@ -309,7 +315,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		unit = "journeys"
 	}
 	fmt.Fprintf(stderr, "gmeter %s · %s mode · %s load · concurrency %d %s · %s arrivals\n%s\n", Version, c.Mode, p.LoadDuration, limit, unit, p.ArrivalDistribution, c.URL)
-	opts := engine.Options{}
+	opts := engine.Options{Telemetry: telemetry.Options{Token: os.Getenv("GMETER_TELEMETRY_TOKEN"), CAFile: *telemetryCA}}
 	if !*quiet {
 		opts.OnProgress = func(progress engine.Progress) {
 			if progress.Workload == "journeys" {
@@ -322,7 +328,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	var result engine.Result
 	if len(c.Workers) > 0 {
 		fmt.Fprintf(stderr, "Coordinating %d workers; the configured rate and concurrency are fleet totals.\n", len(c.Workers))
-		result, err = distributed.Run(ctx, c, distributed.Options{Token: os.Getenv("GMETER_WORKER_TOKEN"), CAFile: *workerCA, OnProgress: opts.OnProgress})
+		result, err = distributed.Run(ctx, c, distributed.Options{Token: os.Getenv("GMETER_WORKER_TOKEN"), CAFile: *workerCA, OnProgress: opts.OnProgress, Telemetry: opts.Telemetry})
 	} else {
 		result, err = engine.Run(ctx, c, opts)
 	}

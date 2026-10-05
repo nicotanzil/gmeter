@@ -220,7 +220,7 @@ func (w *Worker) ServeHTTP(out http.ResponseWriter, r *http.Request) {
 			return
 		}
 		p, err := c.Validate()
-		if err != nil || len(c.Workers) > 0 {
+		if err != nil || len(c.Workers) > 0 || c.Telemetry != nil {
 			fail(out, 400, "invalid worker configuration")
 			return
 		}

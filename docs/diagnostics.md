@@ -19,10 +19,14 @@ In distributed runs, HTTP histograms merge across workers, while resource
 summaries stay per worker process. No fleet CPU average or memory peak is
 invented. See [workers.md](workers.md) for that measurement contract.
 
+Target-server telemetry is a separate opt-in collector; disabling diagnostics
+does not disable configured exporter scrapes. Exporter observations never enter
+HTTP timing/count populations. See [telemetry.md](telemetry.md).
+
 ## Generator process measurements
 
 The sampler reads the current gmeter process at run start, about once per second,
-and after admitted work drains. It also runs for quiet CLI tests. Setup before
+and after admitted work drains and optional final telemetry collection finishes. It also runs for quiet CLI tests. Setup before
 the initial sample and report writing after the final sample are excluded.
 
 | Measurement | Definition |

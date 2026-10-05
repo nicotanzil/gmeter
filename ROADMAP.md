@@ -33,7 +33,7 @@ between sessions; update it when functionality or priorities change.
 - [ ] Distributed users mode, dynamic balancing, and durable worker recovery.
 - [x] Generator CPU, memory, connection, and scheduler diagnostics.
 - [x] Detailed HTTP timing with explicit sample populations.
-- [ ] Target-server telemetry integration.
+- [x] Target-server telemetry integration with selected Prometheus scalar series.
 - [ ] Baseline comparisons and automated regression detection.
 
 ## 5. Prove the advantages
@@ -45,8 +45,9 @@ between sessions; update it when functionality or priorities change.
 
 ## Current scope
 
-Milestones 1, 2, and 3 are complete. Version `0.5.0-dev` adds distributed rate-mode
-workers to generator diagnostics and HTTP timing in milestone 4. JSON scenarios
+Milestones 1, 2, and 3 are complete. Version `0.6.0-dev` adds opt-in target-server
+telemetry to distributed rate-mode workers, generator diagnostics, and HTTP
+timing in milestone 4. JSON scenarios
 and Go's standard library keep this version reproducible without third-party
 runtime dependencies.
 Tests support single requests and weighted journeys with sequential HTTP steps,
@@ -56,12 +57,86 @@ of superiority over JMeter is justified until milestone 5 is complete.
 ## Handoff for the next session
 
 Read this file, README.md, docs/scenarios.md, docs/dashboard.md,
-docs/diagnostics.md, and docs/workers.md first. Continue milestone 4 with
-target-server telemetry integration, then automated regression detection.
+docs/diagnostics.md, docs/workers.md, and docs/telemetry.md first. Continue
+milestone 4 with baseline comparisons and automated regression detection.
 Distributed users mode, balancing, and durable worker recovery remain separate
 extensions to the first worker version. Reuse the existing engine and validation.
 Preserve the measurement contract:
 journey arrivals and HTTP request attempts have separate counts and rates.
+
+Implementation decisions for target-server telemetry:
+
+- Opt-in `telemetry` configuration selects 1–16 scalar gauges/counters from one
+  Prometheus text endpoint. Names and full label sets match exactly; no PromQL,
+  automatic discovery, aggregation, OpenMetrics, or timestamp freshness guesses.
+- Collection starts asynchronously near admission, skips missed ticks, and
+  makes one bounded final observation after drain. Scrapes never enter request
+  counters, HTTP timing, latency populations, or load acceptance checks.
+- Counter increases/rates cover consecutive valid readings only. Missing values
+  and reset intervals stay unknown. Gauge means/extrema are sampled; server
+  metrics can include unrelated traffic and omit early activity or brief spikes.
+- Endpoint failures are visible as incomplete telemetry without failing load
+  checks. Stop-canceled pending probes are counted separately, then a final
+  bounded scrape is attempted if sampling started. No automatic health verdict.
+- Private exporter tokens and optional verified TLS CAs are environment/runtime
+  settings, never browser payloads or saved configurations. No redirects,
+  automatic decompression, proxy forwarding, or workload credential reuse.
+- Distributed telemetry runs once on the coordinator, which strips the exporter
+  configuration before worker reservation. Workers retain their engine schemas.
+- Configured telemetry uses schema 5 locally or with workers. Other runs retain
+  schemas 3/4, and the dashboard imports schemas 2–5 without network requests.
+  Whole-run statistics and the latest 900 scrape observations persist/export.
+- The dashboard shows values, explicit gaps, resets, coverage, and selectable
+  gauge/counter-rate charts. Its workload timeline and scrape timeline are
+  separately bounded. Wide telemetry tables scroll within narrow panels.
+- The rebuilt demo exposes actual process CPU, Go heap/goroutines, bounded work
+  capacity/occupancy, and work outcomes at `/metrics`. Scrapes do not count as
+  demo work. Details and supported format limits are in docs/telemetry.md.
+
+Target telemetry validation on 2026-10-05:
+
+- `make check` passed go vet and race tests in all ten internal packages. Native
+  binaries built, seven examples validated, and JavaScript syntax checking passed.
+  Linux/amd64 and Windows/amd64 cross-builds passed; runtime checks used macOS.
+- Collector tests cover exact/escaped labels, shared family TYPE metadata,
+  whitespace, real zeros, duplicate/missing/non-finite series, gaps, resets,
+  retention, clock adjustments with elapsed-time bounds, body/line caps,
+  deadlines, verified TLS, and redirect rejection.
+  A five-second parser fuzz check completed 29,311 executions without failure.
+- Cancellation tests cover a pending probe discarded during Stop, the final
+  independent scrape, and zero exporter requests before a canceled shared start.
+  Engine/coordinator tests preserve workload counts and isolate credentials;
+  only the coordinator scrapes during distributed tests.
+- CLI tests cover credential setup before traffic, no-network validation,
+  diagnostics-off with explicit telemetry, credential-free reports, and
+  `-telemetry=false` without credentials or an accessible CA file.
+- Dashboard tests cover live observations, workspace reopen, schema 5 bundle
+  imports without traffic, and rejection of inconsistent observation accounting.
+  HTML tests verify escaped metadata, explicit missing values, and valid zeroes.
+- CLI stress planned 680 arrivals, dispatched/completed 679, and reported one
+  scheduler miss. Fourteen scrapes were complete; occupancy reached eight slots,
+  rejection increase was 295, and baseline/recovery had zero request errors.
+  The intentional overload correctly produced exit 1. Scratch JSON/HTML reports
+  are `work/telemetry-stress.json` and `work/telemetry-stress.html`.
+- Browser stress across two local workers completed 679 HTTP attempts, with
+  complete worker results and 15 complete coordinator scrapes. The sampled
+  occupancy peak was eight slots; 292 observed rejections matched measured 503s.
+  This validates coordination/measurement behavior, not scaling performance.
+- Browser users mode with diagnostics disabled passed while one selected series
+  was absent: the missing row stayed unknown, telemetry was incomplete, and
+  workload checks remained independent (118 attempts, eight recorded scrapes).
+  A distributed low-rate run passed 600 attempts with 63 complete scrapes.
+  Browser Stop saved 282 partial HTTP attempts and 30 complete scrapes, with
+  future canceled arrivals excluded from measured counts. The narrow table scrolls internally;
+  both 1240px and 586px layouts had no page overflow.
+- Live observations, chart switching, MiB units, and malformed metric JSON
+  blocking were inspected. Browser error/warning logs were empty. Updated
+  dashboard, demo, and workers remain at ports 8790, 8787, and 8801/8802,
+  respectively. Existing `.gmeter/` history is preserved. The dashboard/workers
+  retain the private token from ignored `work/distributed-token`.
+- Preview: `work/telemetry-preview.jpg`. HTML generation and escaping passed;
+  standalone HTML visual layout remains unverified under the earlier browser
+  local-file restriction.
 
 Implementation decisions for distributed workers:
 

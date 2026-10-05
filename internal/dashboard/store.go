@@ -18,6 +18,7 @@ import (
 	"gmeter/internal/engine"
 	"gmeter/internal/metrics"
 	"gmeter/internal/report"
+	"gmeter/internal/telemetry"
 )
 
 const maxSamples = 900
@@ -37,6 +38,7 @@ type Sample struct {
 	Journeys       engine.JourneyMetrics  `json:"journeys"`
 	Generator      *diagnostics.Resources `json:"generator,omitempty"`
 	Workers        []engine.WorkerPoint   `json:"workers,omitempty"`
+	Telemetry      *telemetry.Snapshot    `json:"telemetry,omitempty"`
 }
 
 type Run struct {

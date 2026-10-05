@@ -17,6 +17,7 @@ import (
 	"gmeter/internal/config"
 	"gmeter/internal/diagnostics"
 	"gmeter/internal/metrics"
+	"gmeter/internal/telemetry"
 )
 
 type Check struct {
@@ -58,6 +59,7 @@ type Result struct {
 	Generator           *diagnostics.Summary `json:"generator,omitempty"`
 	Assignment          *Assignment          `json:"assignment,omitempty"`
 	Distribution        *Distribution        `json:"distribution,omitempty"`
+	Telemetry           *telemetry.Summary   `json:"telemetry,omitempty"`
 	Merge               *AggregateData       `json:"-"`
 	metrics.Snapshot
 	Phases []PhaseResult `json:"phases"`
@@ -76,6 +78,7 @@ type Progress struct {
 	Generator   *diagnostics.Resources
 	Merge       *LiveData
 	Workers     []WorkerStatus
+	Telemetry   *telemetry.Snapshot
 	metrics.Snapshot
 }
 
@@ -83,6 +86,7 @@ type Options struct {
 	OnProgress func(Progress)
 	Shard      *Assignment
 	Capture    bool
+	Telemetry  telemetry.Options
 }
 
 type runner struct {
@@ -111,6 +115,17 @@ func Run(ctx context.Context, c config.Config, opts Options) (Result, error) {
 		if err := opts.Shard.Validate(p); err != nil {
 			return Result{}, err
 		}
+	}
+	var targetSampler *telemetry.Sampler
+	if p.TargetTelemetry != nil {
+		if opts.Shard != nil {
+			return Result{}, fmt.Errorf("target telemetry must run on the coordinator")
+		}
+		targetSampler, err = telemetry.New(p.TargetTelemetry.Config, opts.Telemetry)
+		if err != nil {
+			return Result{}, err
+		}
+		defer targetSampler.Close()
 	}
 	limit := p.MaxInFlight
 	if p.Mode == "users" {
@@ -164,6 +179,9 @@ func Run(ctx context.Context, c config.Config, opts Options) (Result, error) {
 		}
 	}
 	var sampler *diagnostics.Sampler
+	if targetSampler != nil {
+		targetSampler.Start(ctx, start)
+	}
 	if p.DiagnosticsEnabled() {
 		sampler = diagnostics.New()
 	}
@@ -194,6 +212,9 @@ func Run(ctx context.Context, c config.Config, opts Options) (Result, error) {
 					}
 					if opts.OnProgress != nil {
 						progress := Progress{Elapsed: elapsed, WallElapsed: wallElapsed, PhaseIndex: phaseIndex, PhaseName: p.Phases[phaseIndex].Name, TargetRate: p.Phases[phaseIndex].Rate, Draining: wallElapsed >= p.LoadDuration, Snapshot: r.total.Snapshot(elapsed), Journeys: journeyMetrics(r.totalJourneys.Snapshot(elapsed)), Workload: workload, Generator: resources}
+						if targetSampler != nil {
+							progress.Telemetry = targetSampler.Live()
+						}
 						if opts.Capture {
 							progress.Merge = &LiveData{Requests: r.total.State(), Journeys: r.totalJourneys.State()}
 						}
@@ -220,6 +241,11 @@ func Run(ctx context.Context, c config.Config, opts Options) (Result, error) {
 	r.wg.Wait()
 	close(stopProgress)
 	<-progressDone
+	var targetTelemetry *telemetry.Summary
+	if targetSampler != nil {
+		value := targetSampler.Finish()
+		targetTelemetry = &value
+	}
 	var generator *diagnostics.Summary
 	if sampler != nil {
 		value := sampler.Finish()
@@ -232,6 +258,10 @@ func Run(ctx context.Context, c config.Config, opts Options) (Result, error) {
 		TotalSeconds: time.Since(start).Seconds(), Interrupted: ctx.Err() != nil,
 		Snapshot: r.total.Snapshot(loadElapsed), Phases: make([]PhaseResult, 0, len(p.Phases)),
 		Workload: workload, ArrivalDistribution: p.ArrivalDistribution, Seed: p.Seed, Journeys: journeyMetrics(r.totalJourneys.Snapshot(loadElapsed)),
+		Telemetry: targetTelemetry,
+	}
+	if targetTelemetry != nil {
+		result.SchemaVersion = 5
 	}
 	var offset time.Duration
 	for i, phase := range p.Phases {
@@ -586,6 +616,23 @@ func (r Result) Summary() string {
 		}
 		if d.Failure != "" {
 			summary += "  " + d.Failure + "\n"
+		}
+	}
+	if t := r.Telemetry; t != nil {
+		summary += fmt.Sprintf("Target telemetry: %d recorded scrapes · %d failed · %d incomplete · %d canceled during stop · complete coverage %t (separate from load checks)\n", t.Attempts, t.FailedScrapes, t.IncompleteScrapes, t.CanceledScrapes, t.Complete)
+		for _, s := range t.Series {
+			if s.Last == nil {
+				summary += fmt.Sprintf("  %s: unavailable · %d missing samples\n", s.Metric.Title, s.Missing)
+				continue
+			}
+			summary += fmt.Sprintf("  %s: last valid %.4g %s at %.2fs · %d samples · %d missing", s.Metric.Title, *s.Last, s.Metric.Unit, s.LastElapsedSeconds, s.Samples, s.Missing)
+			if s.MeanRate != nil {
+				summary += fmt.Sprintf(" · observed mean rate %.4g %s/s", *s.MeanRate, s.Metric.Unit)
+			}
+			if s.Metric.Kind == "counter" {
+				summary += fmt.Sprintf(" · %d resets", s.Resets)
+			}
+			summary += "\n"
 		}
 	}
 	return summary

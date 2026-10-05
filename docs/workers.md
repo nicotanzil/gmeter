@@ -154,12 +154,19 @@ CPU percentage or heap peak. Request/phase in-flight high-water marks sum worker
 peaks as an upper bound, since those peaks can occur at different times. HTTP
 populations keep the rules in [diagnostics.md](diagnostics.md).
 
-Distributed reports use **schema 4**, with `distribution` and worker summaries.
-Local reports retain schema 3. The dashboard imports schemas 2, 3, and 4 and
+Distributed reports use **schema 4**, with `distribution` and worker summaries,
+or **schema 5** when target-server telemetry is configured. Local reports use
+schema 3 or schema 5 with telemetry. The dashboard imports schemas 2–5 and
 preserves worker lists/results across restart and export. Timeline points retain
 compact worker counters within the 900-point limit. Control responses are capped
 at 32 MiB; bundles retain the 16 MiB limit. Raw histogram transfer states are
 excluded from user reports and bundles.
+
+Optional [target-server telemetry](telemetry.md) is collected once by the
+coordinator near shared admission and after worker drain/collection. Workers
+receive neither the telemetry configuration nor its exporter credentials. The
+endpoint must be reachable from the coordinator. Failed/missing scrapes stay
+unknown and do not change the load checks; worker loss still fails the run.
 
 This first version does not implement distributed users mode, worker discovery,
 heterogeneous quotas, dynamic balancing, durable worker recovery, per-worker

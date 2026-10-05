@@ -25,24 +25,27 @@ import (
 	"gmeter/internal/engine"
 	"gmeter/internal/metrics"
 	"gmeter/internal/report"
+	"gmeter/internal/telemetry"
 )
 
 //go:embed assets/*
 var assets embed.FS
 
 type Server struct {
-	mu          sync.Mutex
-	store       *store
-	current     *Run
-	cancel      context.CancelFunc
-	done        chan struct{}
-	ctx         context.Context
-	closing     bool
-	token       string
-	host        string
-	exports     map[string]configExport
-	workerToken string
-	workerCA    string
+	mu             sync.Mutex
+	store          *store
+	current        *Run
+	cancel         context.CancelFunc
+	done           chan struct{}
+	ctx            context.Context
+	closing        bool
+	token          string
+	host           string
+	exports        map[string]configExport
+	workerToken    string
+	workerCA       string
+	telemetryToken string
+	telemetryCA    string
 }
 
 type configExport struct {
@@ -73,7 +76,7 @@ func New(ctx context.Context, dir, host string) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Server{store: saved, ctx: ctx, token: token, host: host, exports: map[string]configExport{}, workerToken: os.Getenv("GMETER_WORKER_TOKEN"), workerCA: os.Getenv("GMETER_WORKER_CA")}, nil
+	return &Server{store: saved, ctx: ctx, token: token, host: host, exports: map[string]configExport{}, workerToken: os.Getenv("GMETER_WORKER_TOKEN"), workerCA: os.Getenv("GMETER_WORKER_CA"), telemetryToken: os.Getenv("GMETER_TELEMETRY_TOKEN"), telemetryCA: os.Getenv("GMETER_TELEMETRY_CA")}, nil
 }
 
 func Serve(ctx context.Context, address, dir string, output io.Writer) error {
@@ -293,7 +296,7 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.Method == "GET" && path == "/api/examples" {
 		list := []SavedScenario{}
-		for _, name := range []string{"smoke", "stress", "post", "journey", "mix", "distributed"} {
+		for _, name := range []string{"smoke", "stress", "post", "journey", "mix", "distributed", "telemetry"} {
 			data, _ := examples.Files.ReadFile(name + ".json")
 			c, err := config.Load(bytes.NewReader(data))
 			if err != nil {
@@ -474,12 +477,16 @@ func (s *Server) importRun(w http.ResponseWriter, r *http.Request) {
 	if p.IsJourney() {
 		workload = "journeys"
 	}
-	if result == nil || (result.SchemaVersion != 2 && result.SchemaVersion != 3 && result.SchemaVersion != 4) || result.Workload != workload || result.URL != run.Config.URL || result.Mode != run.Config.Mode || result.StartedAt.IsZero() || result.PlannedLoadSeconds != p.LoadDuration.Seconds() || result.LoadSeconds < 0 || result.LoadSeconds > result.PlannedLoadSeconds || result.TotalSeconds < result.LoadSeconds {
-		fail(w, 400, "Import a completed schema 2, 3, or 4 run bundle exported with Run + timeline. Configuration and results must match.")
+	if result == nil || (result.SchemaVersion < 2 || result.SchemaVersion > 5) || result.Workload != workload || result.URL != run.Config.URL || result.Mode != run.Config.Mode || result.StartedAt.IsZero() || result.PlannedLoadSeconds != p.LoadDuration.Seconds() || result.LoadSeconds < 0 || result.LoadSeconds > result.PlannedLoadSeconds || result.TotalSeconds < result.LoadSeconds {
+		fail(w, 400, "Import a completed schema 2–5 run bundle exported with Run + timeline. Configuration and results must match.")
 		return
 	}
-	if len(run.Config.Workers) > 0 && (result.SchemaVersion != 4 || result.Distribution == nil || len(result.Distribution.Workers) != len(run.Config.Workers)) {
+	if len(run.Config.Workers) > 0 && ((result.SchemaVersion != 4 && result.SchemaVersion != 5) || result.Distribution == nil || len(result.Distribution.Workers) != len(run.Config.Workers)) {
 		fail(w, 400, "Distributed run bundle is missing worker results.")
+		return
+	}
+	if err := telemetry.ValidateSummary(run.Config.Telemetry, result.Telemetry, result.StartedAt, result.TotalSeconds); err != nil || (result.Telemetry != nil && result.SchemaVersion != 5) {
+		fail(w, 400, "Run bundle has invalid target telemetry.")
 		return
 	}
 	validCounts := func(s metrics.Counts) bool {
@@ -495,6 +502,12 @@ func (s *Server) importRun(w http.ResponseWriter, r *http.Request) {
 		if sample.ElapsedSeconds < 0 || sample.ElapsedSeconds < previous || sample.ElapsedSeconds > result.TotalSeconds || sample.LoadSeconds < 0 || sample.LoadSeconds > result.LoadSeconds || len(sample.Workers) > config.MaxWorkers {
 			fail(w, 400, "Run bundle timeline is invalid.")
 			return
+		}
+		if sample.Telemetry != nil {
+			if p.TargetTelemetry == nil || telemetry.ValidateSnapshot(*sample.Telemetry, p.TargetTelemetry.Metrics, result.StartedAt, result.TotalSeconds) != nil {
+				fail(w, 400, "Run bundle target telemetry timeline is invalid.")
+				return
+			}
 		}
 		previous = sample.ElapsedSeconds
 	}
@@ -564,6 +577,14 @@ func (s *Server) saveScenario(w http.ResponseWriter, id string, c config.Config)
 func (s *Server) start(w http.ResponseWriter, c config.Config, p config.Plan) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if c.Telemetry != nil {
+		collector, err := telemetry.New(*c.Telemetry, telemetry.Options{Token: s.telemetryToken, CAFile: s.telemetryCA})
+		if err != nil {
+			fail(w, 400, err.Error())
+			return
+		}
+		collector.Close()
+	}
 	if len(c.Workers) > 0 {
 		if err := distributed.ValidToken(s.workerToken); err != nil {
 			fail(w, 400, "Set GMETER_WORKER_TOKEN before starting the dashboard to use workers.")
@@ -623,14 +644,14 @@ func (s *Server) execute(ctx context.Context, c config.Config, p config.Plan, id
 	onProgress := func(progress engine.Progress) {
 		s.mu.Lock()
 		defer s.mu.Unlock()
-		appendSample(s.current, Sample{ElapsedSeconds: progress.WallElapsed.Seconds(), LoadSeconds: progress.Elapsed.Seconds(), Phase: progress.PhaseName, TargetRate: progress.TargetRate, Draining: progress.Draining, Requests: progress.Snapshot, Journeys: progress.Journeys, Generator: progress.Generator, Workers: engine.WorkerPoints(progress.Workers, progress.Workload)})
+		appendSample(s.current, Sample{ElapsedSeconds: progress.WallElapsed.Seconds(), LoadSeconds: progress.Elapsed.Seconds(), Phase: progress.PhaseName, TargetRate: progress.TargetRate, Draining: progress.Draining, Requests: progress.Snapshot, Journeys: progress.Journeys, Generator: progress.Generator, Workers: engine.WorkerPoints(progress.Workers, progress.Workload), Telemetry: progress.Telemetry})
 	}
 	var result engine.Result
 	var err error
 	if len(c.Workers) > 0 {
-		result, err = distributed.Run(ctx, c, distributed.Options{Token: s.workerToken, CAFile: s.workerCA, OnProgress: onProgress})
+		result, err = distributed.Run(ctx, c, distributed.Options{Token: s.workerToken, CAFile: s.workerCA, OnProgress: onProgress, Telemetry: telemetry.Options{Token: s.telemetryToken, CAFile: s.telemetryCA}})
 	} else {
-		result, err = engine.Run(ctx, c, engine.Options{OnProgress: onProgress})
+		result, err = engine.Run(ctx, c, engine.Options{OnProgress: onProgress, Telemetry: telemetry.Options{Token: s.telemetryToken, CAFile: s.telemetryCA}})
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -664,7 +685,12 @@ func (s *Server) execute(ctx context.Context, c config.Config, p config.Plan, id
 		if result.Distribution != nil {
 			points = engine.WorkerPoints(result.Distribution.Workers, result.Workload)
 		}
-		appendSample(run, Sample{ElapsedSeconds: result.TotalSeconds, LoadSeconds: result.LoadSeconds, Phase: phase.Name, TargetRate: phase.Rate, Draining: result.LoadSeconds >= result.PlannedLoadSeconds, Requests: result.Snapshot, Journeys: result.Journeys, Generator: resources, Workers: points})
+		var targetPoint *telemetry.Snapshot
+		if result.Telemetry != nil && len(result.Telemetry.Timeline) > 0 {
+			value := result.Telemetry.Timeline[len(result.Telemetry.Timeline)-1]
+			targetPoint = &value
+		}
+		appendSample(run, Sample{ElapsedSeconds: result.TotalSeconds, LoadSeconds: result.LoadSeconds, Phase: phase.Name, TargetRate: phase.Rate, Draining: result.LoadSeconds >= result.PlannedLoadSeconds, Requests: result.Snapshot, Journeys: result.Journeys, Generator: resources, Workers: points, Telemetry: targetPoint})
 	}
 	if err := s.store.write("runs", id, run); err != nil {
 		run.SaveError = "Final results could not be saved: " + err.Error() + ". Export this run before restarting."

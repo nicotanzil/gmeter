@@ -12,8 +12,11 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
+
+	"gmeter/internal/diagnostics"
 )
 
 func main() {
@@ -25,7 +28,19 @@ func main() {
 		log.Fatal("capacity must be positive and delay must be nonnegative")
 	}
 	slots := make(chan struct{}, *capacity)
+	resources := diagnostics.New()
+	var completed, rejected, canceled atomic.Int64
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /metrics", func(w http.ResponseWriter, _ *http.Request) {
+		r := resources.Sample()
+		w.Header().Set("Content-Type", "text/plain;version=0.0.4;charset=utf-8")
+		if r.CPUAvailable {
+			fmt.Fprintf(w, "# TYPE process_cpu_seconds_total counter\nprocess_cpu_seconds_total %.9g\n", r.CPUSeconds)
+		}
+		fmt.Fprintf(w, "# TYPE go_memstats_heap_alloc_bytes gauge\ngo_memstats_heap_alloc_bytes %d\n# TYPE go_goroutines gauge\ngo_goroutines %d\n", r.HeapBytes, r.Goroutines)
+		fmt.Fprintf(w, "# TYPE gmeter_demo_active_work gauge\ngmeter_demo_active_work %d\n# TYPE gmeter_demo_work_capacity gauge\ngmeter_demo_work_capacity %d\n", len(slots), cap(slots))
+		fmt.Fprintf(w, "# TYPE gmeter_demo_work_requests_total counter\ngmeter_demo_work_requests_total{outcome=\"completed\"} %d\ngmeter_demo_work_requests_total{outcome=\"rejected\"} %d\ngmeter_demo_work_requests_total{outcome=\"canceled\"} %d\n", completed.Load(), rejected.Load(), canceled.Load())
+	})
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) { fmt.Fprintln(w, "ok") })
 	mux.HandleFunc("POST /login", func(w http.ResponseWriter, r *http.Request) {
 		var input struct {
@@ -78,6 +93,7 @@ func main() {
 		case slots <- struct{}{}:
 			defer func() { <-slots }()
 		default:
+			rejected.Add(1)
 			http.Error(w, "work capacity exceeded", 503)
 			return
 		}
@@ -85,10 +101,12 @@ func main() {
 		defer timer.Stop()
 		select {
 		case <-r.Context().Done():
+			canceled.Add(1)
 			return
 		case <-timer.C:
 		}
 		w.Header().Set("Content-Type", "application/json")
+		completed.Add(1)
 		json.NewEncoder(w).Encode(map[string]any{"ok": true, "order_id": "demo-" + username, "item": input.Item})
 	})
 	mux.HandleFunc("/work", func(w http.ResponseWriter, r *http.Request) {
@@ -96,6 +114,7 @@ func main() {
 		case slots <- struct{}{}:
 			defer func() { <-slots }()
 		default:
+			rejected.Add(1)
 			http.Error(w, "work capacity exceeded", http.StatusServiceUnavailable)
 			return
 		}
@@ -103,8 +122,10 @@ func main() {
 		defer timer.Stop()
 		select {
 		case <-r.Context().Done():
+			canceled.Add(1)
 			return
 		case <-timer.C:
+			completed.Add(1)
 			w.Header().Set("Content-Type", "application/json")
 			fmt.Fprintln(w, `{"ok":true}`)
 		}

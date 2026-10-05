@@ -3,7 +3,7 @@
 const $ = id => document.getElementById(id);
 const token = document.querySelector('meta[name="gmeter-token"]').content;
 let examples = [], library = [], runs = [], current = null, selectedScenario = '', activeID = '', view = 'build';
-let selectedRuns = new Set(), timer = null, polling = false;
+let selectedRuns = new Set(), timer = null, polling = false, telemetryFormError = '';
 const fmt = (value, digits = 1) => Number(value || 0).toLocaleString(undefined, {maximumFractionDigits: digits, minimumFractionDigits: digits});
 const count = value => Number(value || 0).toLocaleString();
 const active = run => run && ['running', 'stopping'].includes(run.status);
@@ -32,7 +32,8 @@ function showView(next) {
 }
 for (const e of document.querySelectorAll('[data-view]')) e.addEventListener('click', () => showView(e.dataset.view));
 
-function readEditor() {
+function readEditor(ignoreTelemetryError = false) {
+  if (telemetryFormError&&!ignoreTelemetryError) throw new Error(telemetryFormError);
   const c = JSON.parse($('config-json').value);
   if (!c || Array.isArray(c) || typeof c !== 'object') throw new Error('The configuration must be a JSON object.');
   return c;
@@ -46,6 +47,7 @@ function setEditor(config, id = '') {
   $('save-copy').hidden = !id;
 }
 function syncForm(c) {
+  telemetryFormError='';
   const journey = !!c.scenarios?.length, stages = !!c.stages?.length, rateMode = (c.mode || 'users') === 'rate';
   $('name').value = c.name || 'HTTP test'; $('url').value = c.url || '';
   $('mode').value = c.mode || 'users';
@@ -57,6 +59,8 @@ function syncForm(c) {
   $('timeout').value = c.timeout || '5s'; $('distribution').value = c.arrival_distribution || 'constant';
   $('diagnostics').value = c.diagnostics === false ? 'false' : 'true';
   $('workers').value = (c.workers || []).join('\n');
+  $('telemetry-url').value=c.telemetry?.url||''; $('telemetry-interval').value=c.telemetry?.interval||'1s'; $('telemetry-timeout').value=c.telemetry?.timeout||'1s'; $('telemetry-auth').value=c.telemetry?.bearer_auth?'true':'false';
+  $('telemetry-metrics').value=JSON.stringify(c.telemetry?.metrics||[{name:'process_cpu_seconds_total',kind:'counter',unit:'seconds',title:'Server CPU time'},{name:'go_memstats_heap_alloc_bytes',kind:'gauge',unit:'bytes',title:'Server Go heap'}],null,2);
   $('rate-label').textContent = journey ? 'Journeys / second' : 'Requests / second';
   $('url-hint').textContent = journey ? 'Base origin for every step in your journeys.' : 'Full HTTP or HTTPS endpoint.';
   $('method-field').hidden = journey; $('rate-field').hidden = !rateMode; $('vus-field').hidden = rateMode;
@@ -75,6 +79,14 @@ $('workers').addEventListener('input',()=>{
 });
 
 const fields = {name: 'name', url: 'url', method: 'method', rate: 'rate', vus: 'vus', capacity: 'max_in_flight', duration: 'duration', timeout: 'timeout', distribution: 'arrival_distribution', diagnostics:'diagnostics'};
+for (const id of ['telemetry-url','telemetry-interval','telemetry-timeout','telemetry-auth','telemetry-metrics']) $(id).addEventListener('input',()=>{
+  try {
+    const c=readEditor(true), url=$('telemetry-url').value.trim();
+    if (!url) delete c.telemetry;
+    else c.telemetry={...c.telemetry,url,interval:$('telemetry-interval').value,timeout:$('telemetry-timeout').value,bearer_auth:$('telemetry-auth').value==='true',metrics:JSON.parse($('telemetry-metrics').value)};
+    telemetryFormError=''; $('config-json').value=JSON.stringify(c,null,2); validateMessage('Configuration changed. Validate or start a run.');
+  } catch (e) { telemetryFormError='Fix the scenario and selected metrics JSON: '+e.message; validateMessage(telemetryFormError,'bad'); }
+});
 for (const [id, key] of Object.entries(fields)) $(id).addEventListener('input', () => {
   try {
     const c = readEditor(); c[key] = id==='diagnostics' ? $(id).value==='true' : (['rate', 'vus', 'capacity'].includes(id) ? Number($(id).value) : $(id).value);
@@ -90,7 +102,7 @@ $('mode').addEventListener('change', () => {
   } catch (e) { validateMessage(e.message, 'bad'); }
 });
 $('config-json').addEventListener('input', () => {
-  try { syncForm(readEditor()); validateMessage('Configuration changed. Validate or start a run.'); }
+  try { syncForm(readEditor(true)); validateMessage('Configuration changed. Validate or start a run.'); }
   catch (e) { validateMessage('Invalid JSON: ' + e.message, 'bad'); }
 });
 $('single-phase').addEventListener('click', () => { try { const c = readEditor(); delete c.stages; c.rate = 20; setEditor(c, selectedScenario); } catch (e) { notice(e.message, true); } });
@@ -212,7 +224,7 @@ function renderRun() {
   $('stop').hidden = !activeID || run.id !== activeID; $('stop').disabled = run.status === 'stopping';
   $('view-active').hidden = !activeID || run.id === activeID;
   $('phase-name').textContent = latest.phase ? `${latest.draining && active(run) ? 'Draining · ' : ''}${latest.phase}` : 'Preparing';
-  $('elapsed').textContent = `${fmt(latest.load_seconds)} / ${fmt(run.planned_seconds)}s load${latest.elapsed_seconds > latest.load_seconds + .05 ? ` · ${fmt(latest.elapsed_seconds - latest.load_seconds)}s ${run.config.workers?.length ? 'drain + collection' : 'drain'}` : ''}`;
+  $('elapsed').textContent = `${fmt(latest.load_seconds)} / ${fmt(run.planned_seconds)}s load${latest.elapsed_seconds > latest.load_seconds + .05 ? ` · ${fmt(latest.elapsed_seconds - latest.load_seconds)}s ${run.config.workers?.length||run.config.telemetry ? 'drain + collection' : 'drain'}` : ''}`;
   $('progress').max = run.planned_seconds || 1; $('progress').value = latest.load_seconds || 0;
   $('metric-rps').textContent = fmt(r.started_rps); $('metric-requests').textContent = `${count(r.started)} HTTP attempts · ${count(r.in_flight)} in flight`;
   $('metric-latency').textContent = r.latency?.samples ? fmt(r.latency.p95_ms) + ' ms' : '—';
@@ -227,9 +239,45 @@ function renderRun() {
   if (run.result) renderResults(run.result);
   renderDiagnostics(run, latest, r, traffic);
   renderWorkers(run,latest);
+  renderTelemetry(run,latest);
   if (run.error || run.save_error) notice(run.save_error || run.error, true);
   if (view === 'live') requestAnimationFrame(drawCharts);
 }
+function telemetryPoints(run) {
+  if (run.result?.telemetry) return run.result.telemetry.timeline||[];
+  const seen=new Set(); return run.samples.map(s=>s.telemetry).filter(p=>p&&!seen.has(p.sequence)&&seen.add(p.sequence));
+}
+function telemetryNumber(value,unit='',rate=false) {
+  if (value===null || value===undefined) return '—';
+  if (unit==='bytes') { value/=1048576; unit='MiB'; }
+  const numeric=Math.abs(value)>=1e6 || (value!==0&&Math.abs(value)<.001) ? Number(value).toExponential(2) : fmt(value,3);
+  return `${numeric}${unit?' '+unit:''}${rate?'/s':''}`;
+}
+function renderTelemetry(run,latest) {
+  const config=run.config.telemetry, summary=run.result?.telemetry;
+  $('telemetry-panel').hidden=!config; if (!config) return;
+  const points=telemetryPoints(run), point=points.at(-1), metrics=summary?.series.map(s=>s.metric)||config.metrics;
+  const incomplete=point?.error || point?.values.some(v=>v.value===undefined);
+  $('telemetry-state').textContent=summary ? (summary.complete?'COMPLETE SCRAPES':'INCOMPLETE SCRAPES') : (point?(incomplete?'SCRAPE INCOMPLETE':'OBSERVING'):'WAITING');
+  $('telemetry-source').textContent=config.url;
+  const problems=[];
+  if (point?.error) problems.push(point.error);
+  for (const [i,v] of (point?.values||[]).entries()) if (v.issue) problems.push(`${metrics[i]?.title||metrics[i]?.name}: ${v.issue}`);
+  if (summary&&!summary.complete) problems.unshift(summary.attempts ? `${summary.failed_scrapes} failed scrapes and ${summary.incomplete_scrapes} scrapes with missing/invalid series. Load checks are independent.` : 'No telemetry observations were recorded. Load checks are independent.');
+  $('telemetry-warning').hidden=!problems.length; $('telemetry-warning').textContent=problems.join(' ');
+  const rows=metrics.map((m,i)=>{
+    const v=point?.values[i], s=summary?.series[i], label=node('div',m.title||m.name); label.append(node('div',m.name+(Object.keys(m.labels||{}).length?' '+JSON.stringify(m.labels):''),'helper'));
+    const range=m.kind==='gauge'&&s ? [s.min,s.mean,s.max].map(x=>telemetryNumber(x,m.unit)).join(' / ') : '—';
+    return [label,m.kind,telemetryNumber(v?.value,m.unit),telemetryNumber(v?.rate,m.unit||'units',true),range,s ? telemetryNumber(s.observed_increase,m.unit) : '—',s ? `${s.samples} / ${s.missing} / ${s.resets}` : 'After collection'];
+  });
+  $('telemetry-table').replaceChildren(makeTable(['Series','Kind','Latest scrape','Latest rate','Gauge min / mean / max','Observed increase','Samples / gaps / resets'],rows));
+  const facts=[point?`Scrape ${point.sequence} · observed at ${fmt(point.elapsed_seconds,2)}s · ${fmt(point.duration_ms,2)}ms to collect`:'Waiting for first scrape near workload admission',summary?`${summary.attempts} recorded scrapes · ${points.length} retained${summary.truncated?' (latest 900)':''} · ${summary.canceled_scrapes} stop-canceled requests`:'Final summary includes every recorded scrape',`Interval ${config.interval||'1s'} · timeout ${config.timeout||'1s'}`];
+  if (summary) for (const s of summary.series) if (s.mean_rate!==undefined) facts.push(`${s.metric.title}: observed mean ${telemetryNumber(s.mean_rate,s.metric.unit||'units',true)} over ${fmt(s.covered_seconds,2)}s of continuous readings`);
+  $('telemetry-facts').replaceChildren(...facts.map(x=>node('span',x)));
+  const selected=$('telemetry-series').value, labels=metrics.map(m=>m.title||m.name), options=[...$('telemetry-series').options];
+  if (options.length!==labels.length || options.some((o,i)=>o.textContent!==labels[i])) { $('telemetry-series').replaceChildren(...labels.map((text,i)=>{const option=node('option',text); option.value=String(i); return option;})); $('telemetry-series').value=Number(selected)<metrics.length?selected:'0'; if (!$('telemetry-series').value) $('telemetry-series').value='0'; }
+}
+$('telemetry-series').addEventListener('change',()=>requestAnimationFrame(drawCharts));
 function renderWorkers(run,latest) {
   const urls=run.config.workers||[], distribution=run.result?.distribution;
   $('workers-panel').hidden=!urls.length;
@@ -316,21 +364,24 @@ function chartData(run) {
   return values;
 }
 const colors = {teal: '#087f75', blue: '#527bca', gray: '#94a5af', red: '#bd3c45', amber: '#b27b14'};
-function drawChart(id, series, xEnd, fixedMax, xStart = 0) {
+function drawChart(id, series, xEnd, fixedMax, xStart = 0, signed = false) {
   const canvas = $(id), width = canvas.clientWidth, height = canvas.clientHeight;
   if (!width) return;
   const ratio = window.devicePixelRatio || 1; canvas.width = Math.round(width * ratio); canvas.height = Math.round(height * ratio);
   const ctx = canvas.getContext('2d'); ctx.scale(ratio, ratio);
   const left = 42, right = width - 12, top = 12, bottom = height - 25;
-  let max = fixedMax || Math.max(1, ...series.flatMap(s => s.points.map(p => Number(p[1]) || 0))) * 1.15;
+  const values=series.flatMap(s=>s.points.map(p=>p[1])).filter(v=>v!==null&&v!==undefined&&Number.isFinite(v));
+  let min=signed?Math.min(0,...values)*1.15:0;
+  let max = fixedMax || Math.max(signed?0:1, ...values) * 1.15;
+  if (max<=min) max=min+1;
   ctx.font = '10px -apple-system, sans-serif'; ctx.lineWidth = 1;
   for (let i = 0; i <= 4; i++) {
     const y = bottom - (bottom - top) * i / 4;
     ctx.strokeStyle = '#eaf0f3'; ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(right, y); ctx.stroke();
-    ctx.fillStyle = '#84969e'; ctx.textAlign = 'right'; ctx.fillText(fmt(max * i / 4, max < 5 ? 1 : 0), left - 8, y + 3);
+    ctx.fillStyle = '#84969e'; ctx.textAlign = 'right'; ctx.fillText(fmt(min+(max-min)*i/4,signed&&max-min<5?3:(max<5?1:0)), left - 8, y + 3);
   }
   xEnd = Math.max(xStart + 1, xEnd);
-  const X = x => left + (x - xStart) / (xEnd - xStart) * (right - left), Y = y => bottom - Math.max(0, y) / max * (bottom - top);
+  const X = x => left + (x - xStart) / (xEnd - xStart) * (right - left), Y = y => bottom - ((signed?y:Math.max(0,y))-min)/(max-min)*(bottom-top);
   ctx.fillStyle = '#84969e'; ctx.textAlign = 'center';
   for (let i = 0; i <= 4; i++) { const x = xStart + (xEnd - xStart) * i / 4; ctx.fillText(fmt(x, xEnd > 10 ? 0 : 1) + 's', X(x), height - 6); }
   let visiblePoints = 0;
@@ -380,6 +431,15 @@ function drawCharts() {
     drawChart('cpu-chart',[{points:cpu,color:colors.teal}],end,null,start);
     drawChart('memory-chart',[{points:heap,color:colors.teal},{points:memory,color:colors.blue}],end,null,start);
   }
+  drawTelemetryChart();
+}
+function drawTelemetryChart() {
+  if (!current||view!=='live'||$('telemetry-panel').hidden) return;
+  const points=telemetryPoints(current), index=Number($('telemetry-series').value)||0, m=current.result?.telemetry?.series[index]?.metric||current.config.telemetry.metrics[index];
+  const values=points.map(p=>{const v=p.values[index], value=m.kind==='counter'?v?.rate:v?.value; return [p.elapsed_seconds,value===undefined?null:(m.unit==='bytes'?value/1048576:value)];});
+  $('telemetry-unit').textContent=(m.unit==='bytes'?'MiB':m.unit||'units')+(m.kind==='counter'?'/s · observed':' · sampled');
+  const end=Math.max(current.samples.at(-1)?.elapsed_seconds||1,points.at(-1)?.elapsed_seconds||1);
+  drawChart('telemetry-chart',[{points:values,color:colors.blue}],end,null,points[0]?.elapsed_seconds||0,true);
 }
 window.addEventListener('resize', () => requestAnimationFrame(drawCharts));
 
@@ -437,7 +497,7 @@ $('compare').addEventListener('click', async () => {
     }
     // Configuration mismatches are visible; no causal or automatic verdict.
     const mismatches = [];
-    for (const [key, label] of [['url', 'target'], ['mode', 'model'], ['rate', 'rate'], ['stages', 'phases'], ['duration', 'planned duration'], ['vus', 'user count'], ['max_in_flight', 'capacity'], ['scenarios', 'journey definitions'], ['method', 'method'], ['body', 'body'], ['headers', 'headers'], ['timeout', 'timeout'], ['think_time', 'think time'], ['arrival_distribution', 'arrival spacing'], ['seed', 'seed'],['workers','worker pool']]) if (JSON.stringify(a.config[key]) !== JSON.stringify(b.config[key])) mismatches.push(label);
+    for (const [key, label] of [['url', 'target'], ['mode', 'model'], ['rate', 'rate'], ['stages', 'phases'], ['duration', 'planned duration'], ['vus', 'user count'], ['max_in_flight', 'capacity'], ['scenarios', 'journey definitions'], ['method', 'method'], ['body', 'body'], ['headers', 'headers'], ['timeout', 'timeout'], ['think_time', 'think time'], ['arrival_distribution', 'arrival spacing'], ['seed', 'seed'],['workers','worker pool'],['telemetry','target telemetry']]) if (JSON.stringify(a.config[key]) !== JSON.stringify(b.config[key])) mismatches.push(label);
     if (A.workload !== B.workload) mismatches.push('arrival unit'); if (A.interrupted || B.interrupted) mismatches.push('partial run');
     const hasDiagnostics=result=>!!(result.generator||result.http||result.distribution?.workers?.some(w=>w.generator||w.requests?.http));
     if (hasDiagnostics(A)!==hasDiagnostics(B)) mismatches.push('diagnostics instrumentation');

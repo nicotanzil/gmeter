@@ -1,0 +1,26 @@
+{
+  "name": "Server telemetry: baseline to recovery",
+  "url": "http://127.0.0.1:8787/work",
+  "mode": "rate",
+  "max_in_flight": 64,
+  "timeout": "1s",
+  "stages": [
+    { "name": "Baseline", "duration": "2s", "rate": 20 },
+    { "name": "Overload", "duration": "2s", "rate": 300 },
+    { "name": "Recovery", "duration": "2s", "rate": 20 }
+  ],
+  "thresholds": { "p95": "150ms", "max_error_percent": 0, "max_drop_percent": 0 },
+  "telemetry": {
+    "url": "http://127.0.0.1:8787/metrics",
+    "interval": "500ms",
+    "timeout": "1s",
+    "metrics": [
+      { "name": "gmeter_demo_active_work", "kind": "gauge", "unit": "slots", "title": "Active server work" },
+      { "name": "gmeter_demo_work_capacity", "kind": "gauge", "unit": "slots", "title": "Server work capacity" },
+      { "name": "go_memstats_heap_alloc_bytes", "kind": "gauge", "unit": "bytes", "title": "Server Go heap" },
+      { "name": "process_cpu_seconds_total", "kind": "counter", "unit": "seconds", "title": "Server CPU time" },
+      { "name": "gmeter_demo_work_requests_total", "labels": { "outcome": "rejected" }, "kind": "counter", "unit": "requests", "title": "Server rejected work" },
+      { "name": "gmeter_demo_work_requests_total", "labels": { "outcome": "completed" }, "kind": "counter", "unit": "requests", "title": "Server completed work" }
+    ]
+  }
+}

@@ -6,7 +6,7 @@ make build
 ```
 
 Open the printed URL, normally **http://127.0.0.1:8790**. The binary includes the
-app and six starter configurations. Node and external assets are not needed.
+app and seven starter configurations. Node and external assets are not needed.
 Start `./bin/gmeter-demo` separately to use examples on port 8787.
 
 ```sh
@@ -20,7 +20,7 @@ available port. The default data directory is `.gmeter/` in the current director
 ## Build and reuse tests
 
 The form edits target, model, duration, rate or users, concurrency cap, timeout,
-arrival spacing, and diagnostics. **Scenario JSON** supports every CLI configuration field,
+arrival spacing, diagnostics, and optional target-server telemetry. **Scenario JSON** supports every CLI configuration field,
 including headers, bodies, phases, data rows, journeys, assertions, and thresholds.
 See [scenarios.md](scenarios.md) for journey syntax.
 
@@ -39,6 +39,14 @@ worker pools support fixed arrival rates and use the configured rate/concurrency
 as fleet totals. The dashboard must inherit `GMETER_WORKER_TOKEN` at startup.
 Remote origins require HTTPS. See [workers.md](workers.md) for worker setup,
 clock estimation, fixed quotas, leases, and incomplete measurements.
+
+**Target-server telemetry** configures a Prometheus text endpoint, cadence,
+timeout, selected scalar series, and optional environment bearer authentication.
+Leave the endpoint blank to disable it. Invalid selected-metrics JSON blocks
+validation, saving, and starting until corrected. The new server telemetry
+starter uses the rebuilt demo's `/metrics` endpoint. The dashboard reads
+`GMETER_TELEMETRY_TOKEN` and optional `GMETER_TELEMETRY_CA` at startup; their
+values do not enter browser payloads or exports. See [telemetry.md](telemetry.md).
 
 **Save scenario** creates a library entry. After loading it, **Update scenario**
 changes that entry. **Save editor as a new scenario** makes a separate copy.
@@ -89,28 +97,37 @@ Distributed runs show worker status, assignment coverage, and per-worker CPU/hea
 summaries. Global counts use only received final results when workers are lost;
 the incomplete-worker warning remains visible even if measured errors are zero.
 
+The telemetry panel shows scrape coverage, per-series values/issues, and a
+selectable sampled-gauge or observed-counter-rate chart. Finished views add
+whole-run summaries and use the collector's latest 900 full scrape observations;
+live polling can skip intermediate scrapes. Missing values break the line; zero
+is a valid measurement. Counter resets and gaps exclude unknown increases.
+Telemetry requests are excluded from workload counters and load checks.
+
 ## History and portable files
 
 Finished and interrupted runs persist across restarts. Each stores configuration,
-final results (schema 3 locally, schema 4 for workers), and its retained timeline. If the process ends before
+final results (schema 3 locally, schema 4 for workers, schema 5 with telemetry),
+and its retained timeline. If the process ends before
 final persistence, its reservation appears as **abandoned** at the next startup.
 That run is incomplete and cannot be resumed or compared.
 
 Select two runs to compare target, workload, counts, throughput, latency, errors,
 missed demand, and available timing and resource diagnostics. Differences are B minus A, with relative changes when A is
 nonzero. Percentages differ in percentage points. Different conditions and
-partial runs, diagnostics instrumentation, and generator environments are flagged. Comparison is descriptive, without an automatic
+partial runs, diagnostics instrumentation, telemetry settings, and generator environments are flagged. Comparison is descriptive, without an automatic
 regression verdict.
 
 | Download | Contents | Importable |
 | --- | --- | --- |
 | Editor JSON | Reusable configuration | Yes |
-| Result JSON | Same schema 3/4 measurements as the CLI | No; configuration is absent |
+| Result JSON | Same schema 3/4/5 measurements as the CLI | No; configuration is absent |
 | HTML report | Standalone report | No |
 | Run + timeline | Configuration, final results, retained timeline | Yes |
 
 Use **Import JSON** or **Import run** for run bundles. Imports require final
-schema 2, 3, or 4 results, validate configuration and final count equations, have a 16 MiB
+schema 2–5 results, validate configuration, final count equations, and telemetry
+observation bounds/accounting when present, have a 16 MiB
 limit, and assign a new ID. They send no traffic. Imported runs are marked
 **IMPORTED**; their original traffic has not been independently verified.
 Importing the same file twice makes two history entries. CLI result JSON alone

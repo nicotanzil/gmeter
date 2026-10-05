@@ -41,6 +41,9 @@ still runs separately. See [docs/dashboard.md](docs/dashboard.md) for details.
 ./bin/gmeter run -config examples/stress.json \
   -out results/stress.json -html results/stress.html
 
+# Observe demo server capacity, heap, CPU, and rejection counters during stress.
+./bin/gmeter run -config examples/telemetry.json
+
 # Login, keep the session cookie, extract a token, and verify a checkout.
 ./bin/gmeter run -config examples/journey.json
 
@@ -53,7 +56,7 @@ still runs separately. See [docs/dashboard.md](docs/dashboard.md) for details.
   -workers http://127.0.0.1:8801,http://127.0.0.1:8802
 ```
 
-The stress example deliberately overloads the demo server and normally exits
+The stress and telemetry examples deliberately overload the demo server and normally exits
 with code **1** because HTTP 503 responses exceed its error threshold. The
 recovery row should show the server returning to normal. Thresholds currently
 apply to the overall run; phase-specific acceptance checks are a later feature.
@@ -104,6 +107,7 @@ Command-line flags override the corresponding scenario fields.
 | `max_response_bytes` | `10485760` | Response-body read cap; exceeding it fails the attempt |
 | `diagnostics` | `true` | Generator resource sampling and HTTP transport timing; `false` disables both |
 | `workers` | empty | Worker control origins for distributed rate-mode tests; empty runs locally |
+| `telemetry` | absent | Opt-in selected scalar series from a Prometheus text exporter; see [telemetry.md](docs/telemetry.md) |
 | `success_statuses` | all `2xx` | Optional explicit list of successful status codes |
 | `stages` | empty | Sequential constant-rate phases; rate `0` creates a pause |
 | `thresholds.p95` | disabled | Maximum p95 full-response latency |
@@ -143,7 +147,8 @@ available flags. `-out ''` and `-html ''` disable their respective artifacts.
   Top-level request counts contain logical step attempts; no HTTP attempts are
   invented for a missed journey or a skipped dependent step. Report schema 3
   retains schema 2's journey, scenario, and step results and adds optional
-  generator and HTTP diagnostics. `workload` identifies the arrival unit.
+  generator and HTTP diagnostics. Distributed results use schema 4; configured
+  server telemetry uses schema 5 in either execution mode. `workload` identifies the arrival unit.
   `target_rate` is in that unit; `target_rps` is zero for journey workloads.
 - A **started** request is a dispatched logical HTTP attempt. Go's transport may
   transparently retry certain idempotent attempts on broken reused connections;
@@ -185,6 +190,14 @@ and explicitly mark OS measurements unavailable. Intervals overlap, and sampled
 peaks can miss spikes. See [docs/diagnostics.md](docs/diagnostics.md) for definitions
 and limitations. Use `-diagnostics=false` or `"diagnostics": false` to disable
 instrumentation when measuring its overhead.
+
+Optional target-server telemetry scrapes selected gauges and counters during the
+run, with one final observation after drain. Live/final charts show explicit gaps
+and counter resets. Exporter requests stay separate from workload accounting,
+and exporter failures do not alter load checks. The coordinator alone collects
+metrics in distributed tests. Use `examples/telemetry.json` with the rebuilt demo,
+or configure your server's exporter as described in [docs/telemetry.md](docs/telemetry.md).
+`-telemetry=false` disables this separately from generator diagnostics.
 
 Distributed rate-mode tests assign each arrival once across a shared schedule
 and divide the concurrency cap into fixed worker quotas. Global percentiles
@@ -238,14 +251,15 @@ internal/engine/  Scheduling, concurrency, HTTP execution, and thresholds
 internal/metrics/ Bounded histograms and aggregate accounting
 internal/diagnostics/ Generator process resource sampling
 internal/distributed/ Worker control, leases, and fleet coordination
+internal/telemetry/ Selected target-server gauges/counters and scrape coverage
 internal/report/  JSON and self-contained HTML output
 internal/cli/     Commands, overrides, and exit codes
 internal/dashboard/ Embedded browser app, local API, and persistent workspace
-examples/         Local smoke, stress/recovery, POST, journeys, mixes, and workers
+examples/         Local smoke, stress/recovery, POST, journeys, mixes, workers, and telemetry
 ```
 
-The current version is `0.5.0-dev`, with generator diagnostics, HTTP timing, and
-distributed rate-mode workers implemented in milestone 4. Target-server telemetry,
-automated regression checks, and a fair JMeter benchmark remain ahead.
+The current version is `0.6.0-dev`, with generator diagnostics, HTTP timing,
+distributed rate-mode workers, and opt-in target-server telemetry implemented in
+milestone 4. Automated regression checks and a fair JMeter benchmark remain ahead.
 Its efficiency and measurement accuracy have not yet been established against
 JMeter.

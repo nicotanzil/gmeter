@@ -9,6 +9,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"gmeter/internal/telemetry"
 )
 
 const MaxConfigBytes = 1 << 20
@@ -51,6 +53,7 @@ type Config struct {
 	Seed                int64             `json:"seed"`
 	Diagnostics         *bool             `json:"diagnostics,omitempty"`
 	Workers             []string          `json:"workers,omitempty"`
+	Telemetry           *telemetry.Config `json:"telemetry,omitempty"`
 }
 
 type Phase struct {
@@ -61,15 +64,16 @@ type Phase struct {
 
 type Plan struct {
 	Config
-	Phases         []Phase
-	LoadDuration   time.Duration
-	RequestTimeout time.Duration
-	UserThinkTime  time.Duration
-	P95Limit       time.Duration
-	JourneyLimit   time.Duration
-	JourneyChecks  CompiledJourneyThresholds
-	ScenarioPlans  []ScenarioPlan
-	TotalWeight    int64
+	Phases          []Phase
+	LoadDuration    time.Duration
+	RequestTimeout  time.Duration
+	UserThinkTime   time.Duration
+	P95Limit        time.Duration
+	JourneyLimit    time.Duration
+	JourneyChecks   CompiledJourneyThresholds
+	ScenarioPlans   []ScenarioPlan
+	TotalWeight     int64
+	TargetTelemetry *telemetry.Plan
 }
 
 func Defaults() Config {
@@ -116,6 +120,13 @@ func (c Config) Validate() (Plan, error) {
 	p := Plan{Config: c}
 	if err := c.validateWorkers(); err != nil {
 		return p, err
+	}
+	if c.Telemetry != nil {
+		compiled, err := c.Telemetry.Compile()
+		if err != nil {
+			return p, err
+		}
+		p.TargetTelemetry = &compiled
 	}
 	u, err := url.Parse(c.URL)
 	if err != nil || u.Hostname() == "" || (u.Scheme != "http" && u.Scheme != "https") {

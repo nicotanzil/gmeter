@@ -17,6 +17,7 @@ import (
 
 	"gmeter/internal/config"
 	"gmeter/internal/engine"
+	"gmeter/internal/telemetry"
 )
 
 type Options struct {
@@ -26,6 +27,7 @@ type Options struct {
 	OnProgress   func(engine.Progress)
 	StartDelay   time.Duration
 	PollInterval time.Duration
+	Telemetry    telemetry.Options
 }
 type node struct {
 	engine.WorkerStatus
@@ -187,6 +189,14 @@ func Run(ctx context.Context, c config.Config, opts Options) (engine.Result, err
 	if err := ValidToken(opts.Token); err != nil {
 		return engine.Result{}, err
 	}
+	var targetSampler *telemetry.Sampler
+	if p.TargetTelemetry != nil {
+		targetSampler, err = telemetry.New(p.TargetTelemetry.Config, opts.Telemetry)
+		if err != nil {
+			return engine.Result{}, err
+		}
+		defer targetSampler.Close()
+	}
 	client, err := controlClient(opts)
 	if err != nil {
 		return engine.Result{}, err
@@ -222,6 +232,7 @@ func Run(ctx context.Context, c config.Config, opts Options) (engine.Result, err
 	}
 	local := c
 	local.Workers = nil
+	local.Telemetry = nil
 	data, err := json.Marshal(local)
 	if err != nil {
 		return engine.Result{}, err
@@ -246,6 +257,9 @@ func Run(ctx context.Context, c config.Config, opts Options) (engine.Result, err
 		}
 	}
 	start := time.Now().Add(opts.StartDelay)
+	if targetSampler != nil {
+		targetSampler.Start(ctx, start)
+	}
 	parallel(nodes, func(n *node) {
 		n.assignment = engine.Assignment{Index: n.Index, Count: len(nodes), Capacity: n.Capacity, StartAt: start.Add(n.offset).UTC()}
 		var ready Ready
@@ -383,7 +397,11 @@ func Run(ctx context.Context, c config.Config, opts Options) (engine.Result, err
 				if p.IsJourney() {
 					workload = "journeys"
 				}
-				opts.OnProgress(engine.Progress{Elapsed: load, WallElapsed: elapsed, PhaseIndex: phaseIndex, PhaseName: p.Phases[phaseIndex].Name, TargetRate: p.Phases[phaseIndex].Rate, Draining: aborted || elapsed >= p.LoadDuration, Snapshot: requests, Journeys: journeys, Workload: workload, Workers: statuses})
+				progress := engine.Progress{Elapsed: load, WallElapsed: elapsed, PhaseIndex: phaseIndex, PhaseName: p.Phases[phaseIndex].Name, TargetRate: p.Phases[phaseIndex].Rate, Draining: aborted || elapsed >= p.LoadDuration, Snapshot: requests, Journeys: journeys, Workload: workload, Workers: statuses}
+				if targetSampler != nil {
+					progress.Telemetry = targetSampler.Live()
+				}
+				opts.OnProgress(progress)
 			}
 			lastProgress = time.Now()
 		}
@@ -427,5 +445,12 @@ func Run(ctx context.Context, c config.Config, opts Options) (engine.Result, err
 	if aborted {
 		load = min(max(abortAt.Sub(start), time.Duration(0)), p.LoadDuration)
 	}
-	return engine.Combine(c, start, load, max(time.Since(start), time.Duration(0)), parts, engine.Distribution{Complete: complete, PlannedArrivals: planned, PeakInFlightUpperBound: true, Failure: failure, Workers: statuses}, userCanceled)
+	result, err := engine.Combine(c, start, load, max(time.Since(start), time.Duration(0)), parts, engine.Distribution{Complete: complete, PlannedArrivals: planned, PeakInFlightUpperBound: true, Failure: failure, Workers: statuses}, userCanceled)
+	if err == nil && targetSampler != nil {
+		value := targetSampler.Finish()
+		result.Telemetry = &value
+		result.SchemaVersion = 5
+		result.TotalSeconds = max(result.TotalSeconds, time.Since(start).Seconds())
+	}
+	return result, err
 }
