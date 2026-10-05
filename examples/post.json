@@ -1,0 +1,13 @@
+{
+  "name": "JSON request example",
+  "url": "http://127.0.0.1:8787/work",
+  "method": "POST",
+  "headers": { "Content-Type": "application/json" },
+  "body": "{\"item\":\"example\",\"quantity\":1}",
+  "mode": "users",
+  "vus": 4,
+  "duration": "2s",
+  "think_time": "20ms",
+  "timeout": "1s",
+  "thresholds": { "p95": "150ms", "max_error_percent": 0 }
+}

@@ -1,0 +1,47 @@
+{
+  "name": "Authenticated checkout journeys",
+  "url": "http://127.0.0.1:8787",
+  "mode": "rate",
+  "rate": 10,
+  "duration": "2s",
+  "max_in_flight": 16,
+  "timeout": "1s",
+  "journey_timeout": "3s",
+  "journey_thresholds": { "p95": "250ms", "max_error_percent": 0 },
+  "scenarios": [
+    {
+      "name": "Checkout",
+      "data": [
+        { "username": "alice", "item": "coffee" },
+        { "username": "bob", "item": "tea & biscuits" }
+      ],
+      "thresholds": { "p95": "250ms", "max_error_percent": 0 },
+      "steps": [
+        {
+          "name": "Login",
+          "url": "/login",
+          "method": "POST",
+          "headers": { "Content-Type": "application/json" },
+          "body": "{\"username\":{{username|json}}}",
+          "extract": { "token": { "json_pointer": "/token" }, "session": { "header": "X-Demo-Session" } },
+          "assertions": [ { "json_pointer": "/user/id", "equals": "{{username}}" }, { "header": "X-Demo-Session", "equals": "{{token}}" } ]
+        },
+        {
+          "name": "Profile",
+          "url": "/profile?user={{username|url}}",
+          "headers": { "Authorization": "Bearer {{token}}" },
+          "assertions": [ { "json_pointer": "/authenticated", "equals": "true" }, { "json_pointer": "/user/id", "equals": "{{username}}" } ]
+        },
+        {
+          "name": "Checkout",
+          "url": "/checkout",
+          "method": "POST",
+          "headers": { "Content-Type": "application/json", "Authorization": "Bearer {{token}}" },
+          "body": "{\"item\":{{item|json}}}",
+          "extract": { "order_id": { "json_pointer": "/order_id" } },
+          "assertions": [ { "json_pointer": "/ok", "equals": "true" }, { "json_pointer": "/item", "equals": "{{item}}" } ]
+        }
+      ]
+    }
+  ]
+}

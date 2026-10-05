@@ -1,0 +1,16 @@
+{
+  "name": "Distributed local smoke test",
+  "url": "http://127.0.0.1:8787/work",
+  "mode": "rate",
+  "rate": 20,
+  "duration": "2s",
+  "max_in_flight": 16,
+  "timeout": "1s",
+  "workers": ["http://127.0.0.1:8801", "http://127.0.0.1:8802"],
+  "thresholds": {
+    "p95": "150ms",
+    "max_error_percent": 0,
+    "max_drop_percent": 0,
+    "min_started_rps": 19
+  }
+}

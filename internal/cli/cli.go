@@ -1,0 +1,388 @@
+package cli
+
+import (
+	"context"
+	"flag"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"gmeter/internal/config"
+	"gmeter/internal/dashboard"
+	"gmeter/internal/distributed"
+	"gmeter/internal/engine"
+	"gmeter/internal/report"
+)
+
+const Version = "0.5.0-dev"
+
+const help = `gmeter — HTTP load and stress testing
+
+Usage:
+  gmeter run -url http://localhost:8787/work -vus 10 -duration 10s
+  gmeter run -url http://localhost:8787/work -rate 100 -duration 10s
+  gmeter run -config examples/stress.json
+  gmeter run -config examples/journey.json
+  gmeter validate -config examples/stress.json
+  gmeter ui -listen 127.0.0.1:8790
+  gmeter worker -listen 127.0.0.1:8801 -name worker-1
+  gmeter run -config examples/smoke.json -workers http://127.0.0.1:8801,http://127.0.0.1:8802
+  gmeter version
+
+Run flags override configuration fields. Run 'gmeter run -help' for flags.
+Results are saved as JSON and standalone HTML under results/ by default.
+Exit codes: 0 passed, 1 checks failed, 2 input/output error, 130 interrupted.
+`
+
+func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		fmt.Fprint(stdout, help)
+		return 0
+	}
+	switch args[0] {
+	case "help", "-h", "--help":
+		fmt.Fprint(stdout, help)
+		return 0
+	case "version":
+		fmt.Fprintln(stdout, "gmeter", Version)
+		return 0
+	case "validate":
+		return validate(args[1:], stdout, stderr)
+	case "run":
+		return run(ctx, args[1:], stdout, stderr)
+	case "ui":
+		return ui(ctx, args[1:], stdout, stderr)
+	case "worker":
+		return worker(ctx, args[1:], stdout, stderr)
+	default:
+		fmt.Fprintf(stderr, "unknown command %q\n%s", args[0], help)
+		return 2
+	}
+}
+
+func worker(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("worker", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	listen := fs.String("listen", "127.0.0.1:8801", "worker IP and port; non-loopback requires TLS")
+	host, _ := os.Hostname()
+	if host == "" {
+		host = "worker"
+	}
+	name := fs.String("name", host, "worker display name")
+	cert := fs.String("tls-cert", "", "PEM server certificate for remote control")
+	key := fs.String("tls-key", "", "PEM private key for remote control")
+	if err := fs.Parse(args); err != nil {
+		if err == flag.ErrHelp {
+			return 0
+		}
+		return 2
+	}
+	if fs.NArg() != 0 {
+		fmt.Fprintln(stderr, "usage: gmeter worker [-listen IP:port] [-name worker] [-tls-cert cert.pem -tls-key key.pem]")
+		return 2
+	}
+	if err := distributed.ServeWorker(ctx, *listen, *name, os.Getenv("GMETER_WORKER_TOKEN"), *cert, *key, stdout); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
+	return 0
+}
+
+func ui(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("ui", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	listen := fs.String("listen", "127.0.0.1:8790", "loopback IP and port for the dashboard")
+	data := fs.String("data", ".gmeter", "directory for saved scenarios and runs")
+	if err := fs.Parse(args); err != nil {
+		if err == flag.ErrHelp {
+			return 0
+		}
+		return 2
+	}
+	if fs.NArg() != 0 || *data == "" {
+		fmt.Fprintln(stderr, "usage: gmeter ui [-listen 127.0.0.1:8790] [-data .gmeter]")
+		return 2
+	}
+	path, err := filepath.Abs(*data)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
+	if err := dashboard.Serve(ctx, *listen, path, stdout); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
+	return 0
+}
+
+func load(path string) (config.Config, error) {
+	if path == "" {
+		return config.Defaults(), nil
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return config.Config{}, err
+	}
+	defer f.Close()
+	return config.Load(f)
+}
+
+func validate(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("validate", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	path := fs.String("config", "", "JSON scenario to validate")
+	if err := fs.Parse(args); err != nil {
+		if err == flag.ErrHelp {
+			return 0
+		}
+		return 2
+	}
+	if *path == "" || fs.NArg() != 0 {
+		fmt.Fprintln(stderr, "usage: gmeter validate -config scenario.json")
+		return 2
+	}
+	c, err := load(*path)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
+	p, err := c.Validate()
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
+	fmt.Fprintf(stdout, "Valid: %s · %s mode · %s · %d phase(s)\n", c.Name, c.Mode, p.LoadDuration, len(p.Phases))
+	if p.IsJourney() {
+		fmt.Fprintf(stdout, "%d scenario(s) · rate unit: journeys/second · %s arrivals\n", len(p.ScenarioPlans), p.ArrivalDistribution)
+	}
+	return 0
+}
+
+func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("run", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	d := config.Defaults()
+	path := fs.String("config", "", "JSON scenario file")
+	url := fs.String("url", "", "target HTTP/HTTPS URL")
+	name := fs.String("name", d.Name, "test name")
+	method := fs.String("method", d.Method, "HTTP method")
+	body := fs.String("body", "", "request body (use config for headers)")
+	mode := fs.String("mode", d.Mode, "users or rate")
+	duration := fs.String("duration", d.Duration, "load duration (ignored when stages are configured)")
+	vus := fs.Int("vus", d.VUs, "concurrent users in users mode")
+	rate := fs.Int("rate", 0, "workload arrivals/second (journeys when scenarios are present); selects rate mode")
+	maxInFlight := fs.Int("max-in-flight", d.MaxInFlight, "concurrent workload cap in rate mode")
+	distribution := fs.String("arrival-distribution", d.ArrivalDistribution, "constant or jitter; rate mode only")
+	seed := fs.Int64("seed", d.Seed, "seed for repeatable arrival jitter")
+	journeyTimeout := fs.String("journey-timeout", d.JourneyTimeout, "timeout for the entire journey, including pauses")
+	journeyP95 := fs.String("journey-p95", "", "maximum p95 journey latency")
+	timeout := fs.String("timeout", d.Timeout, "timeout for each request, including response body")
+	think := fs.String("think-time", "", "delay between requests for each user")
+	maxBytes := fs.Int64("max-response-bytes", d.MaxResponseBytes, "maximum response body bytes")
+	p95 := fs.String("p95", "", "maximum p95 latency, e.g. 200ms")
+	maxError := fs.Float64("max-error-percent", 0, "maximum failed requests as a percentage of completed requests")
+	maxDrop := fs.Float64("max-drop-percent", 0, "maximum missed workload arrivals as a percentage of scheduled arrivals")
+	minRPS := fs.Float64("min-started-rps", 0, "minimum requests dispatched per second")
+	base := filepath.Join("results", time.Now().Format("20060102-150405.000000000"))
+	jsonPath := fs.String("out", base+".json", "JSON report path; empty disables JSON output")
+	htmlPath := fs.String("html", base+".html", "HTML report path; empty disables HTML output")
+	quiet := fs.Bool("quiet", false, "disable progress output")
+	diagnostics := fs.Bool("diagnostics", true, "record generator resources and detailed HTTP timing")
+	workers := fs.String("workers", "", "comma-separated worker origins; rate mode only; authentication uses GMETER_WORKER_TOKEN")
+	workerCA := fs.String("worker-ca", os.Getenv("GMETER_WORKER_CA"), "optional PEM CA file for worker HTTPS certificates")
+	if err := fs.Parse(args); err != nil {
+		if err == flag.ErrHelp {
+			return 0
+		}
+		return 2
+	}
+	if fs.NArg() != 0 {
+		fmt.Fprintln(stderr, "unexpected positional arguments; use -url or -config")
+		return 2
+	}
+	c, err := load(*path)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
+	set := map[string]bool{}
+	fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
+	if set["url"] {
+		c.URL = *url
+	}
+	if set["name"] {
+		c.Name = *name
+	}
+	if set["method"] {
+		c.Method = *method
+	}
+	if set["body"] {
+		c.Body = *body
+	}
+	if set["mode"] {
+		c.Mode = *mode
+	}
+	if set["duration"] {
+		c.Duration = *duration
+	}
+	if set["vus"] {
+		c.VUs = *vus
+	}
+	if set["rate"] {
+		c.Rate = *rate
+		c.Stages = nil
+		if !set["mode"] {
+			c.Mode = "rate"
+		}
+	}
+	if set["max-in-flight"] {
+		c.MaxInFlight = *maxInFlight
+	}
+	if set["arrival-distribution"] {
+		c.ArrivalDistribution = *distribution
+	}
+	if set["seed"] {
+		c.Seed = *seed
+	}
+	if set["journey-timeout"] {
+		c.JourneyTimeout = *journeyTimeout
+	}
+	if set["journey-p95"] {
+		c.JourneyThresholds.P95 = *journeyP95
+	}
+	if set["timeout"] {
+		c.Timeout = *timeout
+	}
+	if set["think-time"] {
+		c.ThinkTime = *think
+	}
+	if set["max-response-bytes"] {
+		c.MaxResponseBytes = *maxBytes
+	}
+	if set["p95"] {
+		c.Thresholds.P95 = *p95
+	}
+	if set["max-error-percent"] {
+		c.Thresholds.MaxErrorPercent = maxError
+	}
+	if set["max-drop-percent"] {
+		c.Thresholds.MaxDropPercent = maxDrop
+	}
+	if set["min-started-rps"] {
+		c.Thresholds.MinStartedRPS = minRPS
+	}
+	if set["diagnostics"] {
+		c.Diagnostics = diagnostics
+	}
+	if set["workers"] {
+		c.Workers = nil
+		if strings.TrimSpace(*workers) != "" {
+			for _, raw := range strings.Split(*workers, ",") {
+				c.Workers = append(c.Workers, strings.TrimSpace(raw))
+			}
+		}
+	}
+	p, err := c.Validate()
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
+	if err := distinctPaths(*path, *jsonPath, *htmlPath); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
+	for _, output := range []string{*jsonPath, *htmlPath} {
+		if err := report.CheckPath(output); err != nil {
+			fmt.Fprintf(stderr, "prepare report: %v\n", err)
+			return 2
+		}
+	}
+	limit := p.MaxInFlight
+	if p.Mode == "users" {
+		limit = p.VUs
+	}
+	unit := "requests"
+	if p.IsJourney() {
+		unit = "journeys"
+	}
+	fmt.Fprintf(stderr, "gmeter %s · %s mode · %s load · concurrency %d %s · %s arrivals\n%s\n", Version, c.Mode, p.LoadDuration, limit, unit, p.ArrivalDistribution, c.URL)
+	opts := engine.Options{}
+	if !*quiet {
+		opts.OnProgress = func(progress engine.Progress) {
+			if progress.Workload == "journeys" {
+				fmt.Fprintf(stderr, "[%5.1fs] %d journeys · %.1f journeys/s · %.1f req/s · %.2f%% journey errors · %d journeys dropped\n", progress.Elapsed.Seconds(), progress.Journeys.Completed, progress.Journeys.StartedPerSecond, progress.StartedRPS, progress.Journeys.ErrorPercent, progress.Journeys.DroppedCapacity+progress.Journeys.DroppedScheduler)
+			} else {
+				fmt.Fprintf(stderr, "[%5.1fs] %d completed · %.1f started req/s · %.2f%% errors · %d dropped\n", progress.Elapsed.Seconds(), progress.Completed, progress.StartedRPS, progress.ErrorPercent, progress.DroppedCapacity+progress.DroppedScheduler)
+			}
+		}
+	}
+	var result engine.Result
+	if len(c.Workers) > 0 {
+		fmt.Fprintf(stderr, "Coordinating %d workers; the configured rate and concurrency are fleet totals.\n", len(c.Workers))
+		result, err = distributed.Run(ctx, c, distributed.Options{Token: os.Getenv("GMETER_WORKER_TOKEN"), CAFile: *workerCA, OnProgress: opts.OnProgress})
+	} else {
+		result, err = engine.Run(ctx, c, opts)
+	}
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		if ctx.Err() != nil {
+			return 130
+		}
+		return 2
+	}
+	fmt.Fprint(stdout, result.Summary())
+	for _, check := range result.Checks {
+		if !check.Passed {
+			fmt.Fprintf(stdout, "  Failed %s: %.2f %s (limit %.2f)\n", check.Name, check.Actual, check.Unit, check.Limit)
+		}
+	}
+	failedOutput := false
+	for _, artifact := range []struct {
+		path   string
+		render func(io.Writer) error
+	}{
+		{*jsonPath, func(w io.Writer) error { return report.JSON(w, result) }},
+		{*htmlPath, func(w io.Writer) error { return report.HTML(w, result) }},
+	} {
+		if artifact.path == "" {
+			continue
+		}
+		if err := report.Write(artifact.path, artifact.render); err != nil {
+			fmt.Fprintf(stderr, "write report: %v\n", err)
+			failedOutput = true
+		} else {
+			fmt.Fprintln(stdout, "Report:", artifact.path)
+		}
+	}
+	if result.Interrupted {
+		return 130
+	}
+	if failedOutput {
+		return 2
+	}
+	if !result.Passed {
+		return 1
+	}
+	return 0
+}
+
+func distinctPaths(paths ...string) error {
+	seen := map[string]bool{}
+	for _, path := range paths {
+		if path == "" {
+			continue
+		}
+		abs, err := filepath.Abs(path)
+		if err != nil {
+			return err
+		}
+		if seen[abs] {
+			return fmt.Errorf("configuration and report paths must be distinct")
+		}
+		seen[abs] = true
+	}
+	return nil
+}

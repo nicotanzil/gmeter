@@ -1,0 +1,628 @@
+// Package engine executes HTTP workloads without unbounded queues or samples.
+package engine
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"math"
+	"net"
+	"net/http"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"gmeter/internal/config"
+	"gmeter/internal/diagnostics"
+	"gmeter/internal/metrics"
+)
+
+type Check struct {
+	Name   string  `json:"name"`
+	Passed bool    `json:"passed"`
+	Actual float64 `json:"actual"`
+	Limit  float64 `json:"limit"`
+	Unit   string  `json:"unit"`
+}
+
+type PhaseResult struct {
+	Name           string         `json:"name"`
+	TargetRPS      int            `json:"target_rps"`
+	PlannedSeconds float64        `json:"planned_seconds"`
+	LoadSeconds    float64        `json:"load_seconds"`
+	TargetRate     int            `json:"target_rate"`
+	Journeys       JourneyMetrics `json:"journeys"`
+	metrics.Snapshot
+}
+
+type Result struct {
+	SchemaVersion       int                  `json:"schema_version"`
+	Name                string               `json:"name"`
+	URL                 string               `json:"url"`
+	Method              string               `json:"method"`
+	Mode                string               `json:"mode"`
+	ConcurrencyLimit    int                  `json:"concurrency_limit"`
+	StartedAt           time.Time            `json:"started_at"`
+	PlannedLoadSeconds  float64              `json:"planned_load_seconds"`
+	LoadSeconds         float64              `json:"load_seconds"`
+	TotalSeconds        float64              `json:"total_seconds"`
+	Interrupted         bool                 `json:"interrupted"`
+	Passed              bool                 `json:"passed"`
+	Workload            string               `json:"workload"`
+	ArrivalDistribution string               `json:"arrival_distribution"`
+	Seed                int64                `json:"seed"`
+	Journeys            JourneyMetrics       `json:"journeys"`
+	Scenarios           []ScenarioResult     `json:"scenarios,omitempty"`
+	Generator           *diagnostics.Summary `json:"generator,omitempty"`
+	Assignment          *Assignment          `json:"assignment,omitempty"`
+	Distribution        *Distribution        `json:"distribution,omitempty"`
+	Merge               *AggregateData       `json:"-"`
+	metrics.Snapshot
+	Phases []PhaseResult `json:"phases"`
+	Checks []Check       `json:"checks"`
+}
+
+type Progress struct {
+	Elapsed     time.Duration
+	WallElapsed time.Duration
+	PhaseIndex  int
+	PhaseName   string
+	TargetRate  int
+	Draining    bool
+	Journeys    JourneyMetrics
+	Workload    string
+	Generator   *diagnostics.Resources
+	Merge       *LiveData
+	Workers     []WorkerStatus
+	metrics.Snapshot
+}
+
+type Options struct {
+	OnProgress func(Progress)
+	Shard      *Assignment
+	Capture    bool
+}
+
+type runner struct {
+	plan          config.Plan
+	client        *http.Client
+	total         *metrics.Collector
+	phases        []*metrics.Collector
+	wg            sync.WaitGroup
+	totalJourneys *metrics.Collector
+	phaseJourneys []*metrics.Collector
+	scenarioStats []*scenarioStats
+	nextID        atomic.Int64
+	shard         *Assignment
+	capacity      int
+}
+
+func Run(ctx context.Context, c config.Config, opts Options) (Result, error) {
+	p, err := c.Validate()
+	if err != nil {
+		return Result{}, err
+	}
+	if len(c.Workers) > 0 {
+		return Result{}, fmt.Errorf("worker configurations must execute through the distributed coordinator")
+	}
+	if opts.Shard != nil {
+		if err := opts.Shard.Validate(p); err != nil {
+			return Result{}, err
+		}
+	}
+	limit := p.MaxInFlight
+	if p.Mode == "users" {
+		limit = p.VUs
+	}
+	if opts.Shard != nil {
+		limit = opts.Shard.Capacity
+	}
+	transport := &http.Transport{
+		Proxy:                  http.ProxyFromEnvironment,
+		DialContext:            (&net.Dialer{Timeout: p.RequestTimeout, KeepAlive: 30 * time.Second}).DialContext,
+		ForceAttemptHTTP2:      true,
+		MaxIdleConns:           limit,
+		MaxIdleConnsPerHost:    limit,
+		MaxConnsPerHost:        limit,
+		IdleConnTimeout:        90 * time.Second,
+		TLSHandshakeTimeout:    p.RequestTimeout,
+		MaxResponseHeaderBytes: 1 << 20,
+		DisableCompression:     true,
+	}
+	defer transport.CloseIdleConnections()
+	r := &runner{
+		plan: p, total: metrics.New(), totalJourneys: metrics.New(), shard: opts.Shard, capacity: limit,
+		client: &http.Client{
+			Transport: transport, Timeout: p.RequestTimeout,
+			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+		},
+	}
+	for range p.Phases {
+		r.phases = append(r.phases, metrics.New())
+		r.phaseJourneys = append(r.phaseJourneys, metrics.New())
+	}
+	for _, scenario := range p.ScenarioPlans {
+		stats := &scenarioStats{journeys: metrics.New(), skipped: make([]atomic.Int64, len(scenario.Steps))}
+		for range scenario.Steps {
+			stats.steps = append(stats.steps, metrics.New())
+		}
+		r.scenarioStats = append(r.scenarioStats, stats)
+	}
+	workload := "requests"
+	if p.IsJourney() {
+		workload = "journeys"
+	}
+	start := time.Now()
+	if opts.Shard != nil {
+		// Convert the coordinated wall-clock timestamp to this process's
+		// monotonic clock once. Later scheduling uses monotonic durations.
+		start = start.Add(opts.Shard.StartAt.Sub(start))
+		if !waitUntil(ctx, start) {
+			return Result{}, ctx.Err()
+		}
+	}
+	var sampler *diagnostics.Sampler
+	if p.DiagnosticsEnabled() {
+		sampler = diagnostics.New()
+	}
+	loadCtx, cancelLoad := context.WithDeadline(ctx, start.Add(p.LoadDuration))
+	defer cancelLoad()
+	stopProgress := make(chan struct{})
+	progressDone := make(chan struct{})
+	if opts.OnProgress != nil || sampler != nil {
+		go func() {
+			defer close(progressDone)
+			ticker := time.NewTicker(time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-stopProgress:
+					return
+				case <-ticker.C:
+					wallElapsed := time.Since(start)
+					elapsed := wallElapsed
+					if elapsed > p.LoadDuration {
+						elapsed = p.LoadDuration
+					}
+					phaseIndex := progressPhase(p.Phases, elapsed)
+					var resources *diagnostics.Resources
+					if sampler != nil {
+						value := sampler.Sample()
+						resources = &value
+					}
+					if opts.OnProgress != nil {
+						progress := Progress{Elapsed: elapsed, WallElapsed: wallElapsed, PhaseIndex: phaseIndex, PhaseName: p.Phases[phaseIndex].Name, TargetRate: p.Phases[phaseIndex].Rate, Draining: wallElapsed >= p.LoadDuration, Snapshot: r.total.Snapshot(elapsed), Journeys: journeyMetrics(r.totalJourneys.Snapshot(elapsed)), Workload: workload, Generator: resources}
+						if opts.Capture {
+							progress.Merge = &LiveData{Requests: r.total.State(), Journeys: r.totalJourneys.State()}
+						}
+						opts.OnProgress(progress)
+					}
+				}
+			}
+		}()
+	} else {
+		close(progressDone)
+	}
+	if p.Mode == "users" {
+		r.runUsers(ctx, loadCtx)
+	} else {
+		r.runRate(ctx, loadCtx, start)
+	}
+	loadEnd := time.Now()
+	loadElapsed := loadEnd.Sub(start)
+	if loadElapsed > p.LoadDuration {
+		loadElapsed = p.LoadDuration
+	}
+	// Planned completion stops new arrivals but lets dispatched requests drain.
+	// Parent cancellation (e.g. Ctrl+C) also aborts requests in progress.
+	r.wg.Wait()
+	close(stopProgress)
+	<-progressDone
+	var generator *diagnostics.Summary
+	if sampler != nil {
+		value := sampler.Finish()
+		generator = &value
+	}
+	result := Result{
+		SchemaVersion: 3, Name: p.Name, URL: p.URL, Method: p.Method, Generator: generator, Assignment: opts.Shard,
+		Mode: p.Mode, ConcurrencyLimit: limit, StartedAt: start.UTC(),
+		PlannedLoadSeconds: p.LoadDuration.Seconds(), LoadSeconds: loadElapsed.Seconds(),
+		TotalSeconds: time.Since(start).Seconds(), Interrupted: ctx.Err() != nil,
+		Snapshot: r.total.Snapshot(loadElapsed), Phases: make([]PhaseResult, 0, len(p.Phases)),
+		Workload: workload, ArrivalDistribution: p.ArrivalDistribution, Seed: p.Seed, Journeys: journeyMetrics(r.totalJourneys.Snapshot(loadElapsed)),
+	}
+	var offset time.Duration
+	for i, phase := range p.Phases {
+		elapsed := loadElapsed - offset
+		if elapsed < 0 {
+			elapsed = 0
+		}
+		if elapsed > phase.Duration {
+			elapsed = phase.Duration
+		}
+		targetRPS := phase.Rate
+		if p.IsJourney() {
+			targetRPS = 0
+		}
+		result.Phases = append(result.Phases, PhaseResult{
+			Name: phase.Name, TargetRPS: targetRPS, TargetRate: phase.Rate, PlannedSeconds: phase.Duration.Seconds(),
+			LoadSeconds: elapsed.Seconds(), Snapshot: r.phases[i].Snapshot(elapsed),
+			Journeys: journeyMetrics(r.phaseJourneys[i].Snapshot(elapsed)),
+		})
+		offset += phase.Duration
+	}
+	result.evaluate(p)
+	if p.IsJourney() {
+		result.evaluateJourneys(p, r.scenarioStats, loadElapsed)
+	}
+	if opts.Capture {
+		result.Merge = r.aggregateData()
+	}
+	return result, nil
+}
+
+// At a boundary, live progress names the newly active admission phase. During
+// drain it stays on the final phase; totals remain across the whole run.
+func progressPhase(phases []config.Phase, elapsed time.Duration) int {
+	var end time.Duration
+	for i, phase := range phases {
+		end += phase.Duration
+		if elapsed < end {
+			return i
+		}
+	}
+	return len(phases) - 1
+}
+
+func (r *runner) runUsers(ctx, loadCtx context.Context) {
+	deadline, _ := loadCtx.Deadline()
+	for user := range r.plan.VUs {
+		r.wg.Add(1)
+		go func() {
+			defer r.wg.Done()
+			var session *http.Client
+			if r.plan.IsJourney() {
+				session = r.newSession()
+			}
+			iteration := int64(0)
+			for loadCtx.Err() == nil && time.Now().Before(deadline) {
+				if r.plan.IsJourney() {
+					id := r.nextID.Add(1) - 1
+					selected := r.plan.ScenarioAt(id)
+					iteration++
+					r.startJourney(0, selected)
+					r.journey(ctx, time.Now(), 0, selected, id, int64(user+1), iteration, session)
+				} else {
+					r.start(0)
+					r.request(ctx, time.Now(), 0)
+				}
+				if r.plan.UserThinkTime > 0 && !waitUntil(loadCtx, time.Now().Add(r.plan.UserThinkTime)) {
+					return
+				}
+			}
+		}()
+	}
+	<-loadCtx.Done()
+}
+
+func slots(d time.Duration, rate int) int64 {
+	return int64(math.Ceil(float64(d) * float64(rate) / float64(time.Second)))
+}
+
+func arrival(start time.Time, index int64, rate int) time.Time {
+	return start.Add(time.Duration(float64(index) * float64(time.Second) / float64(rate)))
+}
+
+// Rate workloads use absolute arrival times. When behind, skip old slots and
+// record the missed demand instead of issuing a catch-up burst. Never queue a
+// request waiting for capacity: that would silently reshape the workload.
+func (r *runner) runRate(ctx, loadCtx context.Context, start time.Time) {
+	limit := r.capacity
+	if limit == 0 {
+		limit = r.plan.MaxInFlight
+	}
+	capacity := make(chan struct{}, limit)
+	phaseStart := start
+	var baseID int64
+	for phaseIndex, phase := range r.plan.Phases {
+		end := phaseStart.Add(phase.Duration)
+		n := slots(phase.Duration, phase.Rate)
+		stride := int64(1)
+		if r.shard != nil {
+			stride = int64(r.shard.Count)
+		}
+		for i := r.firstSlot(baseID); i < n; {
+			if ctx.Err() != nil {
+				return
+			}
+			now := time.Now()
+			if !now.Before(end) {
+				r.dropSlots(phaseIndex, i, n, true, baseID)
+				break
+			}
+			due := r.due(phaseStart, phase.Duration, i, phase.Rate, baseID+i)
+			if now.Before(due) {
+				if !waitUntil(loadCtx, due) {
+					if ctx.Err() != nil {
+						return
+					}
+					r.dropSlots(phaseIndex, i, n, true, baseID)
+					break
+				}
+				now = time.Now()
+			}
+			if !now.Before(end) {
+				r.dropSlots(phaseIndex, i, n, true, baseID)
+				break
+			}
+			latest := int64(math.Floor(float64(now.Sub(phaseStart)) * float64(phase.Rate) / float64(time.Second)))
+			if latest >= n {
+				latest = n - 1
+			}
+			if latest > i && r.due(phaseStart, phase.Duration, latest, phase.Rate, baseID+latest).After(now) {
+				latest--
+			}
+			if latest > i {
+				r.dropSlots(phaseIndex, i, latest, true, baseID)
+				i += ((latest - i + stride - 1) / stride) * stride
+				if i >= n {
+					break
+				}
+				due = r.due(phaseStart, phase.Duration, i, phase.Rate, baseID+i)
+				if due.After(now) {
+					continue
+				}
+			}
+			if ctx.Err() != nil {
+				return
+			}
+			select {
+			case capacity <- struct{}{}:
+				selected := 0
+				if r.plan.IsJourney() {
+					selected = r.plan.ScenarioAt(baseID + i)
+					r.startJourney(phaseIndex, selected)
+				} else {
+					r.start(phaseIndex)
+				}
+				r.wg.Add(1)
+				go func(phase int, scheduled time.Time, scenario int, id int64) {
+					defer r.wg.Done()
+					defer func() { <-capacity }()
+					if r.plan.IsJourney() {
+						r.journey(ctx, scheduled, phase, scenario, id, id+1, 1, r.newSession())
+					} else {
+						r.request(ctx, scheduled, phase)
+					}
+				}(phaseIndex, due, selected, baseID+i)
+			default:
+				r.dropRange(phaseIndex, 1, false, baseID+i)
+			}
+			i += stride
+		}
+		if !waitUntil(loadCtx, end) && ctx.Err() != nil {
+			return
+		}
+		phaseStart = end
+		baseID += n
+	}
+}
+
+func (r *runner) start(phase int) {
+	r.total.Start()
+	r.phases[phase].Start()
+	if r.totalJourneys != nil {
+		r.totalJourneys.Start()
+		r.phaseJourneys[phase].Start()
+	}
+}
+func (r *runner) dropRange(phase int, n int64, scheduler bool, id int64) {
+	if !r.plan.IsJourney() {
+		r.total.Drop(n, scheduler)
+		r.phases[phase].Drop(n, scheduler)
+	}
+	if r.totalJourneys != nil {
+		r.totalJourneys.Drop(n, scheduler)
+		r.phaseJourneys[phase].Drop(n, scheduler)
+	}
+	if r.plan.IsJourney() {
+		for i, count := range r.plan.ScenarioRange(id, n) {
+			r.scenarioStats[i].journeys.Drop(count, scheduler)
+		}
+	}
+}
+
+func (r *runner) request(ctx context.Context, scheduled time.Time, phase int) {
+	start := time.Now()
+	s := metrics.Sample{StartDelay: start.Sub(scheduled)}
+	req, err := http.NewRequestWithContext(ctx, r.plan.Method, r.plan.URL, strings.NewReader(r.plan.Body))
+	var trace *requestTrace
+	if err == nil {
+		req.Header.Set("User-Agent", userAgent)
+		for k, v := range r.plan.Headers {
+			if strings.EqualFold(k, "Host") {
+				req.Host = v
+			} else {
+				req.Header.Set(k, v)
+			}
+		}
+		var resp *http.Response
+		if r.plan.DiagnosticsEnabled() {
+			req, trace = traceRequest(req, start, r.total, r.phases[phase])
+		}
+		resp, err = r.client.Do(req)
+		if resp != nil {
+			trace.headers(resp.Proto)
+			s.Status = resp.StatusCode
+			// Bodies are streamed into io.Discard. The +1 detects oversized
+			// responses without buffering them or reading indefinitely.
+			s.Bytes, err = io.Copy(io.Discard, io.LimitReader(resp.Body, r.plan.MaxResponseBytes+1))
+			resp.Body.Close()
+			if s.Bytes > r.plan.MaxResponseBytes {
+				s.Error = "response_too_large"
+			}
+		}
+	}
+	if s.Error == "" && err != nil {
+		var netErr net.Error
+		switch {
+		case errors.Is(err, context.Canceled):
+			s.Error = "canceled"
+		case errors.Is(err, context.DeadlineExceeded):
+			s.Error = "timeout"
+		case errors.As(err, &netErr) && netErr.Timeout():
+			s.Error = "timeout"
+		default:
+			s.Error = "transport"
+		}
+	}
+	if s.Error == "" && !r.plan.Successful(s.Status) {
+		s.Error = "http_status"
+	}
+	finish := time.Now()
+	trace.finish(finish, err != nil || s.Error == "response_too_large")
+	s.Latency, s.ScheduledLatency = finish.Sub(start), finish.Sub(scheduled)
+	r.total.Complete(s)
+	r.phases[phase].Complete(s)
+	if r.totalJourneys != nil {
+		s.Status = 0
+		s.Bytes = 0
+		r.totalJourneys.Complete(s)
+		r.phaseJourneys[phase].Complete(s)
+	}
+}
+
+func waitUntil(ctx context.Context, at time.Time) bool {
+	if ctx.Err() != nil {
+		return false
+	}
+	d := time.Until(at)
+	if d <= 0 {
+		return true
+	}
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return ctx.Err() == nil
+	}
+}
+
+func (r *Result) evaluate(p config.Plan) {
+	completed := !r.Interrupted && (r.Distribution == nil || r.Distribution.Complete)
+	r.Checks = []Check{
+		{Name: "run_completed", Passed: completed, Actual: boolNumber(completed), Limit: 1, Unit: "boolean"},
+		{Name: "requests_completed", Passed: r.Completed > 0, Actual: float64(r.Completed), Limit: 1, Unit: "requests"},
+	}
+	if p.P95Limit > 0 {
+		r.Checks = append(r.Checks, Check{Name: "p95", Passed: r.Completed > 0 && r.Latency.P95MS <= float64(p.P95Limit)/1e6, Actual: r.Latency.P95MS, Limit: float64(p.P95Limit) / 1e6, Unit: "ms"})
+	}
+	for _, check := range []struct {
+		name   string
+		actual float64
+		limit  *float64
+		unit   string
+	}{
+		{"max_error_percent", r.ErrorPercent, p.Thresholds.MaxErrorPercent, "%"},
+		{"max_drop_percent", r.arrivalDropPercent(), p.Thresholds.MaxDropPercent, "%"},
+	} {
+		if check.limit != nil {
+			r.Checks = append(r.Checks, Check{Name: check.name, Passed: check.actual <= *check.limit, Actual: check.actual, Limit: *check.limit, Unit: check.unit})
+		}
+	}
+	if v := p.Thresholds.MinStartedRPS; v != nil {
+		r.Checks = append(r.Checks, Check{Name: "min_started_rps", Passed: r.StartedRPS >= *v, Actual: r.StartedRPS, Limit: *v, Unit: "req/s"})
+	}
+	r.Passed = true
+	for _, check := range r.Checks {
+		r.Passed = r.Passed && check.Passed
+	}
+}
+
+func boolNumber(v bool) float64 {
+	if v {
+		return 1
+	}
+	return 0
+}
+
+func (r Result) Summary() string {
+	status := "PASS"
+	if !r.Passed {
+		status = "FAIL"
+	}
+	summary := fmt.Sprintf("%s  %s\n%d completed requests · %.1f started req/s · %.2f%% request errors · %.2f%% arrivals dropped\nRequest latency: p50 %.2f ms · p95 %.2f ms · p99 %.2f ms\n", status, r.Name, r.Completed, r.StartedRPS, r.ErrorPercent, r.arrivalDropPercent(), r.Latency.P50MS, r.Latency.P95MS, r.Latency.P99MS)
+	if r.Workload == "journeys" {
+		summary += fmt.Sprintf("%d completed journeys · %.1f started journeys/s · %.2f%% journey errors · p95 %.2f ms\n", r.Journeys.Completed, r.Journeys.StartedPerSecond, r.Journeys.ErrorPercent, r.Journeys.Latency.P95MS)
+		for _, s := range r.Scenarios {
+			summary += fmt.Sprintf("  %s: %d journeys · %d requests · %.2f%% journey errors\n", s.Name, s.Journeys.Completed, s.requestCount(), s.Journeys.ErrorPercent)
+		}
+	}
+	if r.HTTP != nil {
+		p95 := func(timing metrics.Latency) string {
+			if timing.Samples == 0 {
+				return "unavailable"
+			}
+			return fmt.Sprintf("%.2f ms", timing.P95MS)
+		}
+		summary += fmt.Sprintf("HTTP: %d connection acquisitions · %d reused · first header byte p95 %s · body read p95 %s\n", r.HTTP.ConnectionsAcquired, r.HTTP.ReusedConnections, p95(r.HTTP.FirstByte), p95(r.HTTP.BodyRead))
+	}
+	if r.Generator != nil {
+		cpu := "unavailable"
+		if r.Generator.CPUAvailable {
+			cpu = fmt.Sprintf("%.1f%% average (100%% = one core)", r.Generator.AverageCPUPercent)
+		}
+		summary += fmt.Sprintf("Generator: CPU %s · peak sampled Go heap %.2f MiB · peak sampled %d goroutines\n", cpu, float64(r.Generator.PeakHeapBytes)/(1<<20), r.Generator.PeakGoroutines)
+	}
+	if r.Distribution != nil {
+		d := r.Distribution
+		summary += fmt.Sprintf("Workers: %d · complete measurements %t · %d planned arrivals · %d planned arrivals unreported\n", len(d.Workers), d.Complete, d.PlannedArrivals, d.UnreportedPlannedArrivals)
+		for _, worker := range d.Workers {
+			summary += fmt.Sprintf("  %s: %s · %d HTTP attempts · capacity %d · assigned %d arrivals\n", worker.Name, worker.Status, worker.Requests.Completed, worker.Capacity, worker.Planned)
+		}
+		if d.Failure != "" {
+			summary += "  " + d.Failure + "\n"
+		}
+	}
+	return summary
+}
+
+func (r Result) arrivalDropPercent() float64 {
+	if r.Workload == "journeys" {
+		return r.Journeys.DropPercent
+	}
+	return r.DropPercent
+}
+
+func (r Result) Arrivals() JourneyMetrics {
+	if r.Workload == "journeys" {
+		return r.Journeys
+	}
+	return journeyMetrics(r.Snapshot)
+}
+
+// Jitter keeps one arrival in each rate interval. Hashing the global arrival
+// ID makes the schedule repeatable without shared random state or large arrays.
+func (r *runner) due(start time.Time, duration time.Duration, index int64, rate int, id int64) time.Time {
+	base := arrival(start, index, rate)
+	if r.plan.ArrivalDistribution != "jitter" {
+		return base
+	}
+	x := uint64(id) + uint64(r.plan.Seed) + 0x9e3779b97f4a7c15
+	x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9
+	x = (x ^ (x >> 27)) * 0x94d049bb133111eb
+	x ^= x >> 31
+	width := min(start.Add(duration).Sub(base), arrival(start, index+1, rate).Sub(base))
+	if width <= 1 {
+		return base
+	}
+	offset := time.Duration(float64(x>>11) / float64(uint64(1)<<53) * float64(width))
+	if offset >= width {
+		offset = width - 1
+	}
+	return base.Add(offset)
+}

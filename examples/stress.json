@@ -1,0 +1,17 @@
+{
+  "name": "Baseline, overload, recovery",
+  "url": "http://127.0.0.1:8787/work",
+  "mode": "rate",
+  "max_in_flight": 64,
+  "timeout": "1s",
+  "stages": [
+    { "name": "Baseline", "duration": "2s", "rate": 20 },
+    { "name": "Overload", "duration": "3s", "rate": 300 },
+    { "name": "Recovery", "duration": "2s", "rate": 20 }
+  ],
+  "thresholds": {
+    "p95": "150ms",
+    "max_error_percent": 1,
+    "max_drop_percent": 1
+  }
+}

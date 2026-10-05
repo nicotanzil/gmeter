@@ -1,0 +1,262 @@
+# gmeter development roadmap
+
+Each milestone should leave a usable application. This file carries the plan
+between sessions; update it when functionality or priorities change.
+
+## 1. HTTP engine and CLI
+
+- [x] Go module and a CLI with `run`, `validate`, and `version` commands.
+- [x] Fixed-user and fixed-arrival-rate workloads, with bounded concurrency.
+- [x] HTTP methods, headers, bodies, timeouts, and explicit success statuses.
+- [x] Sequential rate phases for baseline, stress, and recovery tests.
+- [x] Separate scheduled, started, completed, failed, and dropped demand.
+- [x] Bounded latency histograms and per-phase results.
+- [x] Threshold checks, JSON output, and a standalone HTML report.
+- [x] Local demo target, correctness tests, race checks, and usage documentation.
+
+## 2. Real application scenarios
+
+- [x] Multi-request journeys with response assertions and token extraction.
+- [x] Per-user cookies, authentication, variables, and parameterized data.
+- [x] Weighted scenario mixes and configurable arrival distributions.
+- [x] Scenario-level results and thresholds.
+
+## 3. Interactive app
+
+- [x] Browser dashboard to create, validate, run, and compare tests.
+- [x] Live phase, throughput, latency, error, and missed-demand charts.
+- [x] Saved runs, reusable scenarios, and import/export.
+
+## 4. Scale and observability
+
+- [x] Worker coordination and distributed traffic scheduling for rate-mode tests.
+- [ ] Distributed users mode, dynamic balancing, and durable worker recovery.
+- [x] Generator CPU, memory, connection, and scheduler diagnostics.
+- [x] Detailed HTTP timing with explicit sample populations.
+- [ ] Target-server telemetry integration.
+- [ ] Baseline comparisons and automated regression detection.
+
+## 5. Prove the advantages
+
+- [ ] Reproducible benchmark harness against JMeter and other relevant tools.
+- [ ] Match workload, hardware, connection behavior, TLS, and reporting costs.
+- [ ] Independently verify request counts and latency against reference targets.
+- [ ] Publish measured resource efficiency, pacing accuracy, and limitations.
+
+## Current scope
+
+Milestones 1, 2, and 3 are complete. Version `0.5.0-dev` adds distributed rate-mode
+workers to generator diagnostics and HTTP timing in milestone 4. JSON scenarios
+and Go's standard library keep this version reproducible without third-party
+runtime dependencies.
+Tests support single requests and weighted journeys with sequential HTTP steps,
+isolated sessions, variables, data rows, extraction, and assertions. No claim
+of superiority over JMeter is justified until milestone 5 is complete.
+
+## Handoff for the next session
+
+Read this file, README.md, docs/scenarios.md, docs/dashboard.md,
+docs/diagnostics.md, and docs/workers.md first. Continue milestone 4 with
+target-server telemetry integration, then automated regression detection.
+Distributed users mode, balancing, and durable worker recovery remain separate
+extensions to the first worker version. Reuse the existing engine and validation.
+Preserve the measurement contract:
+journey arrivals and HTTP request attempts have separate counts and rates.
+
+Implementation decisions for distributed workers:
+
+- Rate-mode workers execute interleaved global arrival ordinals. Fractional
+  phases, pause phases, seeded jitter, mix selection, IDs, and data rows preserve
+  the shared offered schedule. Journeys remain on their assigned worker.
+- The fleet concurrency cap divides into fixed worker quotas. There is no work
+  stealing, load replay, or automatic reassignment when a worker fails.
+- All workers pass clock/protocol/authentication preflight and reserve before
+  a shared future start. Three probes estimate offset; reported round trips
+  expose uncertainty. Scheduling then uses each worker's monotonic clock.
+- Worker control requires a shared environment token and remote TLS. There are
+  no token fields in configurations, reports, or browser payloads. Redirects and
+  browser-origin worker control are rejected. TLS verification stays enabled.
+- One active/reserved job per worker, 30-second reservation expiry, and a
+  10-second coordinator lease. Cancellation collects available partial results;
+  unavailable final measurements remain unknown and fail the run.
+- Sparse raw histogram buckets merge before global thresholds are evaluated.
+  Final counts are checked across run, phases, scenarios, and steps. Resource
+  summaries stay per process; in-flight peaks sum worker peaks as an upper bound.
+- Distributed schema 4 results and compact worker timeline counters persist in
+  the dashboard. Schema 2/3 imports remain supported. Local results stay schema 3.
+- Worker control payloads are bounded to 32 MiB. Dashboard bundles retain their
+  existing 16 MiB limit and never contain raw transfer histograms or credentials.
+
+Distributed worker validation on 2026-10-05:
+
+- `make check` passed go vet and race tests in all nine internal packages.
+  Both binaries built and the dashboard JavaScript passed syntax checking.
+- Linux/amd64 and Windows/amd64 cross-builds passed. Worker processes ran on
+  macOS; cross-builds do not establish runtime behavior on those other systems.
+- Tests cover fractional and pause phases, jitter, global journey IDs and mix
+  weights, fixed quota division, exact histogram merging, and nested accounting.
+- Control tests cover authentication, no-traffic preflight failures, reservation
+  expiry, idempotent commits, coordinator lease expiry, worker loss, cancellation,
+  verified TLS, redirect rejection, and loopback-only plaintext listeners.
+- Dashboard tests preserve schema 4 worker results/timeline points across
+  persistence and imports. Slow cleanup after Stop cannot extend the load window
+  or prevent importing a saved partial run. Imports send no target traffic.
+- Two separate local worker processes passed CLI smoke (40 HTTP attempts),
+  checkout (20 journeys / 60 attempts), and jittered mix (40 journeys, Health 30 /
+  Work 10), with no errors or missed demand. Diagnostics-off omitted resource and
+  HTTP timing fields. Scratch JSON/HTML reports are under ignored `work/`.
+- Browser smoke passed 100 attempts; checkout passed 300 journeys / 900 attempts.
+  Both workers reported their assigned arrivals and final process diagnostics.
+  A final smoke after restoring both workers passed another 100 attempts.
+- Browser Stop collected 218 partial checkout journeys / 654 HTTP attempts,
+  including one canceled checkout. The load timeline remained bounded.
+- Stopping one owned worker during a browser run correctly failed the run,
+  preserved 141 known HTTP attempts from its peer, and marked the lost worker's
+  final counts Unknown. Its planned remainder includes future canceled arrivals;
+  it is not measured dropped traffic. Both workers were restored afterwards.
+- Live counters, final complete/incomplete rows, desktop and narrow layouts were
+  inspected. Neither width had page overflow, and browser error logs were empty.
+- Dashboard remains at http://127.0.0.1:8790 with `.gmeter/` history preserved.
+  Local workers are at 127.0.0.1:8801 and :8802. These three processes inherit the
+  same token from owner-readable ignored `work/distributed-token`; restarting
+  them requires that environment value. Never include the token in reports.
+- Preview screenshots are `work/workers-preview.jpg` and
+  `work/workers-loss-preview.jpg`. The demo target remains at 127.0.0.1:8787.
+  These local checks validate behavior, not distributed scaling performance.
+
+Implementation decisions for diagnostics:
+
+- Diagnostics default to enabled; JSON `diagnostics: false` and the CLI
+  `-diagnostics=false` flag disable both HTTP tracing and process sampling.
+- Schema 3 adds optional `generator` and `http` fields. The dashboard still
+  imports schema 2 bundles and preserves older history without inventing metrics.
+- CPU is process time divided by sampled wall time; 100% means one core. macOS
+  and Linux expose CPU and process lifetime RSS peak through getrusage. Other
+  platforms explicitly mark these unavailable and keep Go runtime sampling.
+- Samples occur at start, about once per second, and after drain. CPU/GC deltas
+  cover this window; Go memory/goroutine peaks are sampled. Dashboard work is
+  part of the same process. Resident-memory peak can include earlier runs.
+- Seven bounded histograms describe observed HTTP intervals. Populations differ
+  for reused connections and failed attempts; durations overlap and cannot be
+  summed. HTTP metrics aggregate by run, phase, and journey step.
+- Trace callbacks freeze at network completion. Unfinished events have no
+  invented duration; callbacks that arrive after completion are ignored.
+- There is no automatic saturation verdict or claim about target-server health.
+
+Diagnostics validation on 2026-10-05:
+
+- `make check` passed go vet and race tests in all eight internal packages.
+  Additional timeout, response-cap, and correlation-capture timing assertions
+  passed the engine race tests. Both binaries built; JavaScript syntax passed.
+- Linux/amd64 and Windows/amd64 cross-builds passed. Runtime resource sampling
+  was exercised on macOS; the cross-builds do not establish OS runtime behavior.
+- Tests cover HTTP/1.1 reuse, HTTP/2 over TLS, delayed bodies, unavailable OS
+  counters, CPU deltas, sampled resource peaks, cancellation, and late callbacks.
+- Dashboard tests preserve diagnostics through persistence, restart, and
+  schema 3 imports, while accepting schema 2 bundles without sending traffic.
+- CLI smoke: 40 attempts / 38 reuses. Checkout: 20 journeys / 60 attempts,
+  20 timing samples per step. Both passed with no errors or missed demand.
+- Localhost verification observed one DNS lookup and two address dials,
+  including one failed dial followed by a successful connection.
+- Browser smoke: 100 attempts / 98 reuses. Checkout: 50 journeys / 150 attempts,
+  with live resource and timing panels, no errors, and no missed demand.
+- CLI and browser diagnostics-off runs omitted transport/resource fields and
+  resource timeline samples. The browser displayed the absence message.
+- Native exported journey bundle preserved all 150 timings, 50 timings per
+  step, schema 3, and the resource timeline. Existing workspace history remained.
+- Browser comparisons displayed new timing/CPU/heap rows and flagged differing
+  instrumentation. Older saved results showed the diagnostics absence message.
+- Desktop and narrow layouts were inspected; the narrow view had no horizontal
+  overflow and browser error logs were empty. Sample definitions and observer
+  overhead are in docs/diagnostics.md.
+- The updated dashboard remains at http://127.0.0.1:8790 using `.gmeter/`.
+  Scratch reports and the preview screenshot are under ignored `work/`.
+
+Implementation decisions for milestone 3:
+
+- `gmeter ui` serves embedded HTML/CSS/JavaScript and starter configurations on
+  an explicit loopback IP. The same Go validator and engine execute every run.
+- One active dashboard run; browser disconnects do not cancel it. Stop and
+  process signals cancel, drain, and persist partial results. Startup marks
+  unfinished reservations abandoned rather than resuming them.
+- `.gmeter/` stores atomic, owner-readable scenario and run files. Limits are
+  200 scenarios, 1000 runs, and 900 retained timeline points per run. The final
+  result still covers the entire run.
+- Charts use interval counter deltas and cumulative latency quantiles. Cards
+  retain the CLI load-window denominator. HTTP and journey units are explicit.
+- Configuration and run-bundle imports send no traffic. Bundle imports validate
+  final count equations and assign a new ID; original traffic is not verified.
+  Comparison flags differing conditions and makes no regression verdict.
+- Host/origin checks and a random startup API token protect local controls.
+  Native downloads use a scoped HttpOnly SameSite cookie; API mutations still
+  need a custom token header. Short-lived configuration exports stay in memory.
+- A failed final save leaves the result available for export and blocks new
+  dashboard runs until restart. The dashboard has no remote/multi-user mode.
+
+Milestone 3 validation on 2026-10-05:
+
+- `make check` passed go vet and race tests in all seven internal packages;
+  both binaries built and the dashboard JavaScript passed syntax checking.
+- API integration tests covered no-traffic validation, host/origin/token
+  rejection, one-run concurrency, progress, cancellation, graceful shutdown,
+  persistence/restart, native downloads, import counts, disabled threshold
+  round-trips, abandoned-run recovery, timeline bounds, and output failures.
+- Browser smoke: 40 HTTP attempts passed with no errors or missed demand.
+- Browser checkout: 20 journeys / 60 HTTP attempts passed with correct units,
+  per-step results, and separate request/journey cards.
+- Browser comparison flagged different targets and arrival units. Native run
+  export/import preserved results and marked the imported run.
+- Native editor configuration download passed browser verification and CLI
+  validation. Report downloads use attachment responses for browser compatibility.
+- Browser Stop saved an interrupted 6-attempt run with one canceled request.
+- Desktop charts and mobile layout were visually checked; the narrow viewport
+  had no horizontal overflow. Browser error logs were empty.
+- QA artifacts live in ignored `work/dashboard-qa`; the user workspace defaults
+  to `.gmeter/`. The existing demo listener was reused and left running.
+
+Implementation decisions for milestone 2:
+
+- Report schema 2 adds journey, scenario, and step results. Legacy request
+  metrics and thresholds remain supported; max_drop_percent checks the workload
+  arrival unit. Explicit scenarios use journeys/second for configured rates.
+- Scenario selection uses a deterministic weighted cycle in configuration
+  order. Arrivals support constant spacing or seeded stratified jitter;
+  Poisson arrivals are not implemented.
+- Data rows are inline strings, selected by scheduled scenario ordinal.
+  Variables reset per journey. Users retain cookies across iterations; rate
+  arrivals receive fresh sessions.
+- Steps remain on the base URL origin. Templates provide literal, URL-query,
+  path-segment, and JSON-string expansion. JSON selectors use RFC 6901 pointers.
+- Verification fails fast and records later steps as skipped. Admitted journeys
+  drain remaining steps under a journey timeout. Correlation capture is capped
+  at 1 MiB; sessions cap cookie keys and stored bytes and report limit failures.
+
+Validated on 2026-10-05:
+
+- `make check` passed go vet and race-enabled tests in all six internal packages.
+- Both executable builds and all five example validations passed.
+- Authenticated checkout: 20/20 journeys, 60 HTTP attempts, no errors or drops.
+- Jittered weighted mix: 40 journeys, Health 30 / Work 10, no errors or drops.
+- Deliberate assertion failure: 10 failed journeys, 20 attempts, 10 checkout
+  steps skipped, and exit 1.
+- Capacity limit: 100 scheduled journeys, 17 admitted, 83 dropped, 51 requests,
+  and exit 1. The JSON and HTML report used the correct journey demand counts.
+- Legacy smoke: 40 requests passed. Journey SIGINT saved consistent partial
+  reports and exited 130.
+- HTML generation, escaping, and branch rendering were verified; visual layout
+  remains unverified because the earlier browser tool blocked local-file URLs.
+
+Milestone 1 validation on 2026-10-04:
+
+- `go test -race ./...` passed all five internal packages.
+- `go vet ./...` and both executable builds passed.
+- All three example scenarios passed configuration validation.
+- Local smoke run: 40/40 completed, 20 started req/s, zero errors or drops.
+- Local stress run: 980/980 completed, baseline 0% errors, overload 49.67%
+  errors, recovery 0% errors; correctly returned exit 1.
+- POST/users run passed; SIGINT returned 130 and saved consistent partial results.
+- HTML generation and escaping were verified. Browser visual review was blocked
+  by the browser tool's local-file URL policy, so visual layout is unverified.
+
+Generated binaries, local reports, and scratch verification scripts are ignored
+by .gitignore. The demo target is a correctness illustration, not a benchmark.

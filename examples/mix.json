@@ -1,0 +1,15 @@
+{
+  "name": "Weighted traffic with arrival jitter",
+  "url": "http://127.0.0.1:8787",
+  "mode": "rate",
+  "rate": 20,
+  "duration": "2s",
+  "arrival_distribution": "jitter",
+  "seed": 42,
+  "max_in_flight": 16,
+  "journey_timeout": "2s",
+  "scenarios": [
+    { "name": "Health", "weight": 3, "thresholds": { "max_error_percent": 0 }, "steps": [ { "name": "Read health", "url": "/health", "assertions": [ { "body_contains": "ok" } ] } ] },
+    { "name": "Work", "weight": 1, "thresholds": { "p95": "150ms", "max_error_percent": 0 }, "steps": [ { "name": "Do work", "url": "/work", "assertions": [ { "json_pointer": "/ok", "equals": "true" } ] } ] }
+  ]
+}

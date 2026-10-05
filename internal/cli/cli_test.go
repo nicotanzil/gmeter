@@ -1,0 +1,92 @@
+package cli
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"gmeter/internal/distributed"
+	"gmeter/internal/engine"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync/atomic"
+	"testing"
+)
+
+func TestCLIProducesReportsAndUsesFailureExitCode(t *testing.T) {
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { http.Error(w, "unavailable", 503) }))
+	defer s.Close()
+	dir := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"run", "-url", s.URL, "-rate", "1", "-duration", "20ms", "-quiet", "-out", filepath.Join(dir, "run.json"), "-html", filepath.Join(dir, "run.html")}, &stdout, &stderr)
+	if code != 1 || !strings.Contains(stdout.String(), "FAIL") {
+		t.Fatalf("code %d, stdout %s, stderr %s", code, &stdout, &stderr)
+	}
+	for _, name := range []string{"run.json", "run.html"} {
+		if info, err := os.Stat(filepath.Join(dir, name)); err != nil || info.Size() == 0 {
+			t.Fatalf("missing report %s: %v", name, err)
+		}
+	}
+}
+
+func TestCLIDistributedReportsAndTokenHandling(t *testing.T) {
+	token := "cli-test-worker-token-012345678901234567890123456789"
+	t.Setenv("GMETER_WORKER_TOKEN", token)
+	worker, err := distributed.NewWorker(context.Background(), "CLI worker", token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer worker.Close()
+	w := httptest.NewServer(worker)
+	defer w.Close()
+	target := httptest.NewServer(http.HandlerFunc(func(out http.ResponseWriter, r *http.Request) { fmt.Fprint(out, "ok") }))
+	defer target.Close()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "fleet.json")
+	var output bytes.Buffer
+	code := Run(context.Background(), []string{"run", "-url", target.URL, "-rate", "1", "-duration", "50ms", "-max-in-flight", "1", "-workers", w.URL, "-quiet", "-out", path, "-html", filepath.Join(dir, "fleet.html")}, &output, &output)
+	if code != 0 || strings.Contains(output.String(), token) {
+		t.Fatalf("distributed CLI: %d %s", code, &output)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var result engine.Result
+	if err := json.Unmarshal(data, &result); err != nil || result.SchemaVersion != 4 || !result.Distribution.Complete || result.Completed != 1 {
+		t.Fatalf("distributed report: %s %v", data, err)
+	}
+	t.Setenv("GMETER_WORKER_TOKEN", "")
+	output.Reset()
+	if code := Run(context.Background(), []string{"worker", "-listen", "127.0.0.1:0"}, &output, &output); code != 2 || !strings.Contains(output.String(), "GMETER_WORKER_TOKEN") {
+		t.Fatal("worker started without required credentials")
+	}
+}
+
+func TestInvalidOutputIsRejectedBeforeTraffic(t *testing.T) {
+	var requests atomic.Int64
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { requests.Add(1); fmt.Fprint(w, "ok") }))
+	defer s.Close()
+	var output bytes.Buffer
+	code := Run(context.Background(), []string{"run", "-url", s.URL, "-duration", "20ms", "-out", t.TempDir(), "-html", ""}, &output, &output)
+	if code != 2 || requests.Load() != 0 {
+		t.Fatalf("code=%d, requests=%d, output=%s", code, requests.Load(), &output)
+	}
+}
+
+func TestValidateDoesNotSendTraffic(t *testing.T) {
+	var requests atomic.Int64
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { requests.Add(1) }))
+	defer s.Close()
+	path := filepath.Join(t.TempDir(), "scenario.json")
+	if err := os.WriteFile(path, []byte(fmt.Sprintf(`{"url":%q}`, s.URL)), 0600); err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	if code := Run(context.Background(), []string{"validate", "-config", path}, &output, &output); code != 0 || requests.Load() != 0 {
+		t.Fatalf("code=%d, requests=%d, output=%s", code, requests.Load(), &output)
+	}
+}

@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="gmeter-token" content="{{.}}">
+  <title>gmeter · Load testing workspace</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <aside class="sidebar">
+    <a class="brand" href="/" aria-label="gmeter home"><span class="brand-mark">g</span>gmeter<span class="version">0.5</span></a>
+    <div class="nav-label">WORKSPACE</div>
+    <nav aria-label="Workspace">
+      <button class="nav active" data-view="build"><span>⌘</span>Build a test</button>
+      <button class="nav" data-view="live"><span>◉</span>Live run<span id="live-dot" class="dot" hidden></span></button>
+      <button class="nav" data-view="history"><span>≡</span>Run history</button>
+    </nav>
+    <div class="sidebar-bottom"><span class="local-indicator"></span> Local workspace<p>Coordinated traffic. Clear measurements.</p></div>
+  </aside>
+  <main>
+    <header class="topbar"><span>HTTP load &amp; stress testing</span><span class="pill">LOCAL · 0.5.0-dev</span></header>
+    <div id="notice" role="status" aria-live="polite" hidden></div>
+    <section id="view-build" class="view">
+      <div class="page-heading"><div><div class="eyebrow">YOUR NEXT EXPERIMENT</div><h1>Build a test</h1><p>Define the traffic. Know what your system can handle.</p></div><button id="import-config" class="button secondary">↑ Import JSON</button><input id="file-input" type="file" accept=".json,application/json" hidden></div>
+      <div class="build-grid">
+        <section class="panel editor-panel">
+          <div class="panel-heading"><h2>Test configuration</h2><select id="starter" aria-label="Start from an example"><option value="">Start from an example…</option></select></div>
+          <form id="config-form">
+            <label>Test name<input id="name" required maxlength="256" placeholder="Checkout capacity test"></label>
+            <label>Target URL<input id="url" required type="url" placeholder="http://127.0.0.1:8787/work"><small id="url-hint">Full HTTP or HTTPS endpoint.</small></label>
+            <div class="form-grid"><label>Workload model<select id="mode"><option value="rate">Fixed arrival rate</option><option value="users">Concurrent users</option></select></label><label id="method-field">HTTP method<select id="method"><option>GET</option><option>POST</option><option>PUT</option><option>PATCH</option><option>DELETE</option><option>HEAD</option><option>OPTIONS</option></select></label></div>
+            <div class="form-grid three"><label id="rate-field"><span id="rate-label">Requests / second</span><input id="rate" type="number" min="1" max="1000000" step="1"></label><label id="vus-field" hidden>Concurrent users<input id="vus" type="number" min="1" max="100000" step="1"></label><label>Load duration<input id="duration" placeholder="10s"><small id="stages-hint" hidden>Phases set the duration.</small></label><label id="capacity-field">Concurrency cap<input id="capacity" type="number" min="1" max="100000" step="1"></label></div>
+            <div id="phase-summary" class="phase-strip" hidden></div>
+            <div class="form-grid"><label>Request timeout<input id="timeout" placeholder="5s"></label><label id="distribution-field">Arrival spacing<select id="distribution"><option value="constant">Constant</option><option value="jitter">Seeded jitter</option></select></label></div>
+            <label>Diagnostics<select id="diagnostics"><option value="true">Record resources and HTTP timing</option><option value="false">Disabled</option></select><small>Includes generator process CPU, memory, connections, and transport intervals.</small></label>
+            <label>Workers<textarea id="workers" rows="2" placeholder="http://127.0.0.1:8801&#10;http://127.0.0.1:8802" spellcheck="false"></textarea><small>Optional worker origins, one per line. Leave blank to run on this machine. Workers support fixed arrival rates; rate and concurrency are fleet totals. Set GMETER_WORKER_TOKEN before starting workers and this dashboard.</small></label>
+            <details id="advanced"><summary>Scenario JSON <span>Headers, phases, journeys &amp; thresholds</span></summary><label class="sr-only" for="config-json">Complete scenario configuration JSON</label><textarea id="config-json" spellcheck="false" rows="17"></textarea><p class="helper">Edit the complete configuration here. JSON changes update the fields above. Variables use {{"{{name}}"}}, with |url, |path, or |json filters.</p><button id="single-phase" type="button" class="text-button" hidden>Use a single phase</button></details>
+            <div id="validation" class="validation" role="status">Validate your configuration before a run.</div>
+            <div class="actions"><button type="button" id="validate" class="button secondary">Validate</button><button type="button" id="save-scenario" class="button secondary">Save scenario</button><button type="button" id="export-config" class="icon-button" title="Export configuration JSON" aria-label="Export configuration JSON">↓ JSON</button><button type="submit" id="start" class="button primary">Start run <span>→</span></button></div>
+          </form>
+        </section>
+        <div class="build-aside">
+          <section class="panel"><div class="panel-heading"><h2>Scenario library</h2><span id="library-count" class="count">0</span></div><div id="library" class="library-list"><div class="empty-small">Save a configuration to reuse it here.</div></div><button id="save-copy" class="text-button" hidden>Save editor as a new scenario</button></section>
+          <section class="measurement-note"><div class="eyebrow">READ THE SIGNAL</div><h2>Offered traffic matters.</h2><p>Missed arrivals stay visible. A fast response time doesn’t mean the generator delivered your target load.</p><div class="note-rule"></div><p>Journey arrivals and HTTP attempts are measured separately. Assertions and dependent steps run through the same engine as the CLI.</p></section>
+        </div>
+      </div>
+    </section>
+    <section id="view-live" class="view" hidden>
+      <div class="page-heading"><div><div class="eyebrow" id="live-eyebrow">GENERATOR ACTIVITY</div><h1 id="run-title">Live run</h1><p id="run-target">Start a test to watch its progress.</p></div><div class="heading-actions"><span id="run-status" class="status">IDLE</span><button id="view-active" class="button secondary" hidden>View active run</button><button id="stop" class="button danger" hidden>Stop run</button></div></div>
+      <div id="live-empty" class="empty-panel"><span class="empty-icon">◉</span><h2>Your experiment starts here</h2><p>Build a test, then watch offered traffic, response time, and failures.</p><button class="button primary" data-view="build">Build a test →</button></div>
+      <div id="run-content" hidden>
+        <div class="run-progress"><div><strong id="phase-name">Preparing</strong><span id="elapsed">0s</span></div><progress id="progress" max="1" value="0" aria-label="Admission window progress"></progress></div>
+        <div class="cards"><article class="metric-card"><span>HTTP attempts / second</span><strong id="metric-rps">—</strong><small id="metric-requests">No attempts yet</small></article><article class="metric-card"><span>Request latency · p95</span><strong id="metric-latency">—</strong><small>Cumulative · full response</small></article><article class="metric-card"><span>Request errors</span><strong id="metric-errors">—</strong><small id="metric-failed">No completed attempts</small></article><article class="metric-card"><span>Missed workload demand</span><strong id="metric-drops">—</strong><small id="metric-missed">No scheduled arrivals</small></article></div>
+        <div id="journey-summary" class="journey-summary" hidden></div>
+        <section id="workers-panel" class="panel diagnostics-panel" hidden><div class="panel-heading"><h2>Distributed workers</h2><span id="workers-state" class="pill">PREPARING</span></div><div id="workers-warning" class="validation bad" hidden></div><div id="workers-table" class="table-wrap"></div><div id="workers-facts" class="diagnostic-facts"></div><p class="helper">Arrivals are assigned once across the shared schedule. Global percentiles merge histogram buckets. Live values are the latest received worker measurements. Missing final results are unknown, and make the run fail. Unreported planned arrivals can include work canceled before admission. Worker CPU and heap are per process; in-flight peaks sum worker peaks as an upper bound.</p></section>
+        <div class="chart-grid"><section class="panel"><div class="panel-heading"><h2>Traffic delivered</h2><span class="chart-unit" id="traffic-unit">req/s</span></div><canvas id="traffic-chart" aria-label="Interval HTTP throughput and target workload rate" role="img"></canvas><div class="legend"><span class="teal-key">HTTP attempts/s</span><span id="journey-key" class="blue-key" hidden>Journeys/s</span><span class="gray-key">Target arrivals/s</span></div></section><section class="panel"><div class="panel-heading"><h2>Response latency</h2><span class="chart-unit">ms · cumulative</span></div><canvas id="latency-chart" aria-label="Cumulative request p50 and p95 latency" role="img"></canvas><div class="legend"><span class="teal-key">p95</span><span class="blue-key">p50</span></div></section><section class="panel"><div class="panel-heading"><h2>Errors &amp; missed demand</h2><span class="chart-unit">% · interval</span></div><canvas id="errors-chart" aria-label="Interval request error percent and workload drop percent" role="img"></canvas><div class="legend"><span class="red-key">Request errors</span><span class="amber-key">Missed arrivals</span></div></section><section class="panel"><div class="panel-heading"><h2>Admission phases</h2><span class="chart-unit" id="phase-unit">arrivals/s</span></div><canvas id="phase-chart" aria-label="Configured phase targets over elapsed time" role="img"></canvas><div id="phase-list" class="phase-list"></div></section></div>
+        <p class="helper">Live charts refresh about once per second and retain the latest 900 points. Throughput and percentages use sample intervals; latency quantiles and the cards use cumulative aggregates. Drain can send remaining journey steps after the admission window.</p>
+        <p id="diagnostics-empty" class="helper" hidden>Generator and HTTP timing diagnostics were not recorded for this run.</p>
+        <section id="generator-panel" class="panel diagnostics-panel" hidden>
+          <div class="panel-heading"><h2>Generator process</h2><span class="pill">SAMPLED RESOURCES</span></div>
+          <div class="cards"><article class="metric-card"><span id="cpu-label">Process CPU · last interval</span><strong id="generator-cpu">—</strong><small id="generator-cpu-note">100% equals one CPU core</small></article><article class="metric-card"><span>Go heap allocated</span><strong id="generator-heap">—</strong><small id="generator-heap-note">Includes objects awaiting GC</small></article><article class="metric-card"><span>Process lifetime resident peak</span><strong id="generator-rss">—</strong><small>Includes earlier runs in this process</small></article><article class="metric-card"><span>Goroutines</span><strong id="generator-goroutines">—</strong><small id="generator-goroutines-note">Process-wide, sampled</small></article></div>
+          <div class="chart-grid"><section><div class="panel-heading"><h2>Process CPU</h2><span class="chart-unit">% · 100% = one core</span></div><canvas id="cpu-chart" role="img" aria-label="Sampled interval process CPU percent"></canvas></section><section><div class="panel-heading"><h2>Go memory</h2><span class="chart-unit">MiB · sampled</span></div><canvas id="memory-chart" role="img" aria-label="Sampled Go heap and Go runtime memory"></canvas><div class="legend"><span class="teal-key">Allocated heap</span><span class="blue-key">Mapped by Go runtime</span></div></section></div>
+          <div id="generator-facts" class="diagnostic-facts"></div><p class="helper">CPU and memory cover this gmeter process, including dashboard work. Go memory is not resident memory. Sampled peaks can miss short spikes. CPU, GC, and arrival delay can help investigate the generator; they do not establish target-server health or prove saturation.</p>
+        </section>
+        <section id="http-panel" class="panel diagnostics-panel" hidden><div class="panel-heading"><h2>HTTP timing &amp; connections</h2><span class="chart-unit">ms · cumulative</span></div><div id="http-timings" class="table-wrap"></div><div id="connection-facts" class="diagnostic-facts"></div><p class="helper">Observed intervals overlap and cannot be added together. Connection acquisition includes DNS, TCP, TLS, and pool waiting when they occur. First header byte starts at the attempt and can be informational headers; it is not server processing time. Reused connections have no DNS/TCP/TLS timing sample. Completed failed events are included; unfinished events have no duration.</p></section>
+        <section id="results-panel" class="panel" hidden><div class="panel-heading"><h2>Run results</h2><div class="download-actions"><button id="download-json" class="text-button">↓ Result JSON</button><button id="download-html" class="text-button">↓ HTML report</button><button id="download-run" class="text-button">↓ Run + timeline</button></div></div><div id="checks" class="check-list"></div><div id="scenario-results"></div></section>
+      </div>
+    </section>
+    <section id="view-history" class="view" hidden>
+      <div class="page-heading"><div><div class="eyebrow">PAST EXPERIMENTS</div><h1>Run history</h1><p>Revisit results and compare two tests side by side.</p></div><div class="heading-actions"><button id="import-history" class="button secondary">↑ Import run</button><button id="refresh-history" class="button secondary">Refresh</button></div></div>
+      <section class="panel"><div class="panel-heading"><h2>Saved runs</h2><button id="compare" class="button secondary" disabled>Compare selected (0/2)</button></div><div id="history" class="table-wrap"></div></section>
+      <section id="comparison" class="panel comparison" hidden><div class="panel-heading"><h2>Run comparison</h2><span class="pill">DESCRIPTIVE</span></div><p class="helper">Compare workload, duration, and target before interpreting changes. These differences do not establish a regression.</p><div id="comparison-warning" class="validation" hidden></div><div id="comparison-table" class="table-wrap"></div></section>
+    </section>
+    <footer>gmeter <span>Measure the load you delivered.</span></footer>
+  </main>
+</body>
+</html>
