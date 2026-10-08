@@ -18,7 +18,7 @@ import (
 	"gmeter/internal/telemetry"
 )
 
-const Version = "0.6.0-dev"
+var Version = "0.6.0-dev"
 
 const help = `gmeter — HTTP load and stress testing
 
@@ -180,6 +180,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	seed := fs.Int64("seed", d.Seed, "seed for repeatable arrival jitter")
 	journeyTimeout := fs.String("journey-timeout", d.JourneyTimeout, "timeout for the entire journey, including pauses")
 	journeyP95 := fs.String("journey-p95", "", "maximum p95 journey latency")
+	insecure := fs.Bool("insecure", false, "skip certificate and hostname verification for workload HTTPS requests")
 	timeout := fs.String("timeout", d.Timeout, "timeout for each request, including response body")
 	think := fs.String("think-time", "", "delay between requests for each user")
 	maxBytes := fs.Int64("max-response-bytes", d.MaxResponseBytes, "maximum response body bytes")
@@ -259,6 +260,9 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	if set["journey-p95"] {
 		c.JourneyThresholds.P95 = *journeyP95
 	}
+	if set["insecure"] {
+		c.Insecure = *insecure
+	}
 	if set["timeout"] {
 		c.Timeout = *timeout
 	}
@@ -315,6 +319,9 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		unit = "journeys"
 	}
 	fmt.Fprintf(stderr, "gmeter %s · %s mode · %s load · concurrency %d %s · %s arrivals\n%s\n", Version, c.Mode, p.LoadDuration, limit, unit, p.ArrivalDistribution, c.URL)
+	if c.Insecure {
+		fmt.Fprintln(stderr, "TLS verification disabled for workload HTTPS requests. Worker and telemetry TLS verification remains enabled.")
+	}
 	opts := engine.Options{Telemetry: telemetry.Options{Token: os.Getenv("GMETER_TELEMETRY_TOKEN"), CAFile: *telemetryCA}}
 	if !*quiet {
 		opts.OnProgress = func(progress engine.Progress) {
