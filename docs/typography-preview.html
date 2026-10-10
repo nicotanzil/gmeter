@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>gmeter typography preview</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #172a32;
+      --muted: #5f727b;
+      --line: #dce5e8;
+      --teal: #087f75;
+      --paper: #f6f8fa;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--paper); color: var(--ink); font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    button, input { font: inherit; }
+    button:focus-visible, input:focus-visible { outline: 3px solid #87d3c7; outline-offset: 2px; }
+    .shell { max-width: 1350px; margin: 0 auto; padding: 38px 28px 60px; }
+    .intro { display: flex; justify-content: space-between; align-items: end; flex-wrap: wrap; gap: 20px; margin-bottom: 22px; }
+    .eyebrow { color: var(--teal); font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+    h1 { font-size: clamp(25px, 3vw, 34px); line-height: 1.2; letter-spacing: -.035em; margin: 8px 0 7px; }
+    .intro p { max-width: 640px; color: var(--muted); margin: 0; }
+    .scale-control { display: flex; align-items: center; gap: 10px; background: white; border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; white-space: nowrap; cursor: pointer; }
+    .scale-control input { accent-color: var(--teal); width: 16px; height: 16px; margin: 0; }
+    .notice { border: 1px solid #d5e1e5; border-radius: 8px; background: #edf3f5; color: #45616b; padding: 10px 14px; margin-bottom: 22px; font-size: 12px; }
+    .notice.warn { background: #fff6e6; border-color: #e9cc95; color: #714b13; }
+    .comparison { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px; }
+    .option { --body-size: 14px; --label-size: 13px; --small-size: 12px; --input-size: 14px; --metric-size: 30px; background: white; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; min-width: 0; box-shadow: 0 5px 18px #152e3408; font-family: var(--sans), -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: var(--body-size); }
+    body.current .option { --body-size: 12px; --label-size: 11px; --small-size: 10px; --input-size: 11px; --metric-size: 25px; }
+    .plex { --sans: "IBM Plex Sans"; --mono: "IBM Plex Mono"; }
+    .inter { --sans: "Inter"; --mono: "JetBrains Mono"; font-optical-sizing: auto; }
+    .option-head { padding: 20px 22px; border-bottom: 1px solid var(--line); }
+    .option-head h2 { font-size: 20px; letter-spacing: -.025em; line-height: 1.25; margin: 4px 0 5px; }
+    .option-head p { color: var(--muted); margin: 0; font-size: var(--small-size); }
+    .font-name { font-size: 11px; font-weight: 700; color: var(--teal); letter-spacing: .04em; text-transform: uppercase; }
+    .mini-app { display: grid; grid-template-columns: 125px minmax(0, 1fr); min-height: 490px; }
+    .side { background: #12282c; padding: 18px 10px; color: #d9e9e9; }
+    .brand { font-size: 19px; font-weight: 700; letter-spacing: -.04em; padding: 0 8px 20px; }
+    .brand span { display: inline-grid; place-items: center; width: 25px; height: 25px; margin-right: 5px; border-radius: 6px; background: #75ddc9; color: #12282c; font-size: 18px; }
+    .side-label { color: #9bb8bd; font-size: var(--small-size); letter-spacing: .05em; margin: 8px 8px 6px; text-transform: uppercase; }
+    .nav-item { display: block; border-radius: 6px; color: #bfd4d5; padding: 8px; font-size: var(--label-size); line-height: 1.3; }
+    .nav-item.active { background: #25464a; color: #9ef0db; font-weight: 600; }
+    .work { padding: 20px; min-width: 0; }
+    .work h3 { font-size: 28px; letter-spacing: -.035em; line-height: 1.2; margin: 3px 0 3px; font-weight: 700; }
+    .work-subtitle { color: var(--muted); font-size: var(--small-size); margin: 0 0 18px; }
+    .section-title { display: flex; justify-content: space-between; gap: 8px; align-items: center; border-bottom: 1px solid var(--line); padding-bottom: 9px; margin-bottom: 13px; font-size: 16px; font-weight: 600; }
+    .tag { color: var(--teal); background: #e8f3ef; border-radius: 4px; padding: 3px 6px; font-size: var(--small-size); font-weight: 600; }
+    .field { display: block; font-size: var(--label-size); font-weight: 600; color: #38515b; margin: 0 0 14px; }
+    .field input { display: block; width: 100%; border: 1px solid #cfdce1; border-radius: 6px; padding: 9px 10px; margin-top: 5px; background: #fff; color: var(--ink); font-size: var(--input-size); font-weight: 400; }
+    .field input.code { font-family: var(--mono), ui-monospace, monospace; font-variant-ligatures: none; font-size: var(--small-size); }
+    .fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 12px; }
+    .field small { display: block; margin-top: 4px; color: var(--muted); font-size: var(--small-size); font-weight: 400; }
+    .actions { display: flex; justify-content: flex-end; gap: 7px; margin: 2px 0 20px; }
+    .actions button { border-radius: 6px; padding: 8px 12px; font-size: var(--label-size); font-weight: 600; cursor: default; }
+    .secondary { background: white; border: 1px solid #d4e0e3; color: #34545c; }
+    .primary { background: var(--teal); border: 1px solid var(--teal); color: white; }
+    .metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+    .metric { border: 1px solid var(--line); border-radius: 7px; padding: 10px; min-width: 0; }
+    .metric-label { color: var(--muted); font-size: var(--small-size); line-height: 1.3; }
+    .metric strong { display: block; font-size: var(--metric-size); font-weight: 600; letter-spacing: -.045em; line-height: 1.15; margin: 5px 0 2px; font-variant-numeric: tabular-nums; }
+    .metric small { display: block; color: var(--muted); font-size: var(--small-size); }
+    .specimen { border-top: 1px solid var(--line); padding: 16px 22px 20px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px 18px; }
+    .specimen > div { min-width: 0; }
+    .specimen b { display: block; font-size: 11px; color: var(--muted); font-weight: 600; margin-bottom: 5px; }
+    .sample-sans { font-size: 17px; line-height: 1.4; }
+    .sample-mono { font-family: var(--mono), ui-monospace, monospace; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; font-variant-ligatures: none; }
+    .footnote { color: var(--muted); font-size: 12px; margin: 18px 0 0; }
+    @media (max-width: 950px) { .comparison { grid-template-columns: 1fr; } }
+    @media (max-width: 520px) { .shell { padding: 22px 12px 35px; } .mini-app { grid-template-columns: 95px minmax(0, 1fr); } .side { padding: 14px 5px; } .nav-item { padding: 7px 5px; } .work { padding: 14px; } .fields { grid-template-columns: 1fr; } .specimen { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <div class="intro">
+      <div><div class="eyebrow">gmeter / typography study</div><h1>Two directions for a developer tool</h1><p>The same controls, copy, and metrics appear in both panels. Compare the letterforms, readability, and technical values.</p></div>
+      <label class="scale-control"><input id="current-scale" type="checkbox"> Show current small type scale</label>
+    </div>
+    <div id="font-status" class="notice" role="status">Checking sample fonts…</div>
+    <div class="comparison">
+      <section class="option plex" aria-labelledby="plex-title">
+        <header class="option-head"><div class="font-name">Option A · recommended</div><h2 id="plex-title">IBM Plex Sans + IBM Plex Mono</h2><p>Structured and technical, with a matching sans and mono family.</p></header>
+        <div class="mini-app">
+          <aside class="side"><div class="brand"><span>g</span>gmeter</div><div class="side-label">Workspace</div><div class="nav-item active">Build a test</div><div class="nav-item">Live run</div><div class="nav-item">Run history</div></aside>
+          <div class="work">
+            <div class="eyebrow">Your next experiment</div><h3>Build a test</h3><p class="work-subtitle">Define the traffic. Know what your system can handle.</p>
+            <div class="section-title">Test configuration <span class="tag">LOCAL</span></div>
+            <label class="field">Test name<input value="Checkout capacity test" readonly></label>
+            <label class="field">Target URL<input class="code" value="https://api.example.com/checkout" readonly><small>Full HTTP or HTTPS endpoint.</small></label>
+            <div class="fields"><label class="field">Requests / second<input value="250" readonly></label><label class="field">Load duration<input value="10m" readonly></label></div>
+            <div class="actions"><button class="secondary" type="button">Validate</button><button class="primary" type="button">Start run →</button></div>
+            <div class="metrics"><div class="metric"><div class="metric-label">HTTP attempts / second</div><strong>248.6</strong><small>Target: 250/s</small></div><div class="metric"><div class="metric-label">Request latency · p95</div><strong>184 ms</strong><small>Full response</small></div></div>
+          </div>
+        </div>
+        <div class="specimen"><div><b>Sans specimen · 400 / 600</b><div class="sample-sans">Offered traffic matters. 0123456789</div></div><div><b>Mono specimen · 400</b><div class="sample-mono">GET /checkout · p95=184ms<br>{"rate":250,"duration":"10m"}</div></div></div>
+      </section>
+      <section class="option inter" aria-labelledby="inter-title">
+        <header class="option-head"><div class="font-name">Option B · neutral</div><h2 id="inter-title">Inter + JetBrains Mono</h2><p>Calm interface text with a distinct font for technical values.</p></header>
+        <div class="mini-app">
+          <aside class="side"><div class="brand"><span>g</span>gmeter</div><div class="side-label">Workspace</div><div class="nav-item active">Build a test</div><div class="nav-item">Live run</div><div class="nav-item">Run history</div></aside>
+          <div class="work">
+            <div class="eyebrow">Your next experiment</div><h3>Build a test</h3><p class="work-subtitle">Define the traffic. Know what your system can handle.</p>
+            <div class="section-title">Test configuration <span class="tag">LOCAL</span></div>
+            <label class="field">Test name<input value="Checkout capacity test" readonly></label>
+            <label class="field">Target URL<input class="code" value="https://api.example.com/checkout" readonly><small>Full HTTP or HTTPS endpoint.</small></label>
+            <div class="fields"><label class="field">Requests / second<input value="250" readonly></label><label class="field">Load duration<input value="10m" readonly></label></div>
+            <div class="actions"><button class="secondary" type="button">Validate</button><button class="primary" type="button">Start run →</button></div>
+            <div class="metrics"><div class="metric"><div class="metric-label">HTTP attempts / second</div><strong>248.6</strong><small>Target: 250/s</small></div><div class="metric"><div class="metric-label">Request latency · p95</div><strong>184 ms</strong><small>Full response</small></div></div>
+          </div>
+        </div>
+        <div class="specimen"><div><b>Sans specimen · 400 / 600</b><div class="sample-sans">Offered traffic matters. 0123456789</div></div><div><b>Mono specimen · 400</b><div class="sample-mono">GET /checkout · p95=184ms<br>{"rate":250,"duration":"10m"}</div></div></div>
+      </section>
+    </div>
+    <p class="footnote">This is a standalone design preview. It loads sample fonts from Google Fonts; the production dashboard has not been changed.</p>
+  </div>
+  <script>
+    document.getElementById('current-scale').addEventListener('change', (event) => {
+      document.body.classList.toggle('current', event.target.checked);
+    });
+    const families = ['IBM Plex Sans', 'IBM Plex Mono', 'Inter', 'JetBrains Mono'];
+    const status = document.getElementById('font-status');
+    Promise.all(families.map((family) => document.fonts.load(`400 14px "${family}"`)))
+      .then((results) => {
+        const missing = families.filter((_, index) => results[index].length === 0);
+        if (missing.length) {
+          status.classList.add('warn');
+          status.textContent = `Could not load: ${missing.join(', ')}. Connect to the internet to compare the intended fonts.`;
+        } else {
+          status.textContent = 'All four sample fonts loaded. Compare the two panels or toggle the current type scale.';
+        }
+      })
+      .catch(() => {
+        status.classList.add('warn');
+        status.textContent = 'Sample fonts could not load. Connect to the internet to compare the intended fonts.';
+      });
+  </script>
+</body>
+</html>

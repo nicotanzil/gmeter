@@ -44,3 +44,17 @@
 @media(max-width:1050px){.je-workspace{grid-template-columns:minmax(0,1fr) 260px}.je-library{grid-column:1/-1;display:flex;align-items:center;gap:6px;flex-wrap:wrap;border:0;border-bottom:1px solid var(--line);padding:10px 14px;max-height:180px}.je-library>.je-label{margin:4px 8px}.je-journey,.je-outline-step{width:auto;max-width:180px;padding:6px 9px}.je-library>.je-link{width:auto}.je-library-note{display:none}}
 @media(max-width:700px){.je-workspace{grid-template-columns:minmax(0,1fr)}.je-inspector{border-left:0;border-top:1px solid var(--line);max-height:none}.je-viewport{height:520px;flex:none}.je-heading{padding:18px}.je-heading h2{font-size:20px}.je-subtitle{font-size:11px}.je-guide,.je-message{padding:12px 18px}.je-footer{padding:12px 16px}.je-toolbar{padding:10px}.je-tools{flex-wrap:wrap}.je-library{max-height:200px}.builder-tabs button{padding:10px 12px}.builder-tabs>span{width:100%;margin:4px 12px 0}.je-actions .je-button{min-height:40px}.je:fullscreen .je-viewport{height:520px}.je:fullscreen .je-workspace{display:block}}
 @media(prefers-reduced-motion:reduce){.je *{scroll-behavior:auto}}
+
+/* Keep the canvas and inspector readable without hiding technical values. */
+.builder-tabs button,.je-guide,.je-message,.je-subtitle,.je-preview,.je-footer{font-size:13px}
+.builder-tabs>span,.je-button,.je-link,.je-journey,.je-outline-step,.je-toggle{font-size:12px}
+.je-label,.je-endpoint{font-size:11px;letter-spacing:.06em}
+.je-node-title{font-size:14px;font-weight:600}
+.je-node-title small,.je-node-request code{font:11px/1.4 var(--font-mono)}
+.je-method,.je-node-meta,.je-node-stats,.je-node-issue,.je-pause,.je-legend{font-size:11px}
+.je-field,.je-tab,.je-inspector h4,.je-group h3,.je-note,.je-variable-row,.je-result-table td,.je-result-table th{font-size:12px}
+.je-field input,.je-field select{font-size:13px}
+.je-field textarea{font:12px/1.6 var(--font-mono)}
+.je-field small,.je-map-row input,.je-variable-row small,.je-footer small{font-size:11px}
+.je-map-row input,.je-variable-row code{font-family:var(--font-mono)}
+.je-result-table td{font-variant-numeric:tabular-nums}

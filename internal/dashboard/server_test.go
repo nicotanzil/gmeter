@@ -94,10 +94,13 @@ func TestBrowserBoundaryAndStrictValidation(t *testing.T) {
 	if requests.Load() != 0 {
 		t.Fatal("validation or rejected input sent traffic")
 	}
-	for _, path := range []string{"/", "/app.js", "/style.css", "/journey-model.js", "/journey-editor.js", "/journey.css"} {
+	for _, path := range []string{"/", "/app.js", "/style.css", "/journey-model.js", "/journey-editor.js", "/journey.css", "/IBMPlexSans-Regular.woff2", "/IBMPlexMono-Regular.woff2"} {
 		w = request(s, "GET", path, "")
 		if w.Code != 200 || w.Body.Len() == 0 {
 			t.Fatalf("asset %s: %d %s", path, w.Code, w.Body)
+		}
+		if strings.HasSuffix(path, ".woff2") && w.Header().Get("Content-Type") != "font/woff2" {
+			t.Fatalf("font %s content type: %s", path, w.Header().Get("Content-Type"))
 		}
 		if !strings.Contains(w.Header().Get("Content-Security-Policy"), "frame-ancestors 'none'") {
 			t.Fatal("missing CSP")
