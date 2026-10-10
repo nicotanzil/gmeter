@@ -8,7 +8,7 @@ record product scope and acceptance gates.
 
 ## Development setup
 
-Use Go 1.24 or newer. There are no third-party Go dependencies or frontend package
+Use Go 1.24 or newer and Node.js 18 or newer for development checks. There are no third-party Go dependencies or frontend package
 installation steps. The dashboard is embedded from `internal/dashboard/assets/`.
 Rebuild and restart the local dashboard after frontend changes, then reload the
 browser. A browser refresh alone does not replace assets in an existing binary.
@@ -22,6 +22,9 @@ Without Make:
 ```sh
 go vet ./...
 go test -race ./...
+node --check internal/dashboard/assets/app.js
+node --check internal/dashboard/assets/journey-editor.js
+node --test internal/dashboard/test/*.test.cjs
 go build -o bin/gmeter ./cmd/gmeter
 go build -o bin/gmeter-demo ./cmd/gmeter-demo
 ```
@@ -29,6 +32,17 @@ go build -o bin/gmeter-demo ./cmd/gmeter-demo
 Race-enabled tests require a Go-supported race-detector platform and its host C
 toolchain. Tests start local fixture servers; loopback network access is needed.
 The production binary has no Java or Node.js runtime requirement.
+
+`make test-ui` runs dependency-free configuration/model tests and JavaScript
+syntax checks. The optional `make test-browser` uses Playwright and its Chromium
+browser to exercise the canvas against a disposable dashboard and a counted
+local HTTP target. Install Playwright in your development environment (outside
+the production assets), then set `PLAYWRIGHT_MODULE` to its absolute module path
+if it is not on Node's module search path. `CHROME_PATH` can select an existing
+Chrome/Chromium executable. This test creates and removes its own temporary data
+directory; it does not use `.gmeter/`. It checks editing, unfinished drafts,
+dependency reordering, save/reload, literal user content, six viewport widths,
+and successful/failed journeys with independently counted HTTP requests.
 
 ## Keep development state separate
 

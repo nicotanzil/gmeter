@@ -198,14 +198,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodHead {
 			t.Execute(w, s.token)
 		}
-	case "/app.js", "/style.css", "/coverage.json":
+	case "/app.js", "/style.css", "/journey-model.js", "/journey-editor.js", "/journey.css", "/coverage.json":
 		body, err := assets.ReadFile("assets" + r.URL.Path)
 		if err != nil {
 			fail(w, 404, "Asset not found.")
 			return
 		}
 		kind := "text/javascript; charset=utf-8"
-		if r.URL.Path == "/style.css" {
+		if strings.HasSuffix(r.URL.Path, ".css") {
 			kind = "text/css; charset=utf-8"
 		}
 		if r.URL.Path == "/coverage.json" {

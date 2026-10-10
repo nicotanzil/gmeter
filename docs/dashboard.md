@@ -34,6 +34,55 @@ arrival spacing, diagnostics, and optional target-server telemetry. **Advanced J
 including headers, bodies, phases, data rows, journeys, assertions, and thresholds.
 See [scenarios.md](scenarios.md) for journey syntax.
 
+### Edit a journey on the Flow canvas
+
+![Journey canvas with request inspector, execution order, pause, and extracted-data links](images/journey-canvas.png)
+
+Load **Authenticated checkout journeys** from the starter menu to open the
+**Journey canvas**, or open that tab and choose **Create journey from current
+request**. **Test settings** holds the base URL, traffic model, defaults, and
+request pass criteria. Both tabs and Advanced JSON edit the same CLI configuration.
+
+1. Select a request card or its entry under **Request order**. The inspector
+   edits its method, path, headers, body, successful statuses, and pause after
+   success. Test headers are inherited; step headers override matching names.
+2. Open **Checks** to add JSON Pointer, response-header, or body-content
+   assertions. Open **Variables** to extract JSON values or response headers
+   and see which variables are available before that request.
+3. Enable **Data flow** to trace extracted variables used by the selected
+   request. Solid arrows show execution order; dotted links show data dependencies.
+   Drag a request onto another to place it at that position, or use **Move up**
+   and **Move down**. Missing variables are flagged after reordering. **Undo**
+   restores prior canvas edits within the current test (up to 20 edits).
+4. Select **Journey settings & data** to edit the name, mix weight, variables,
+   dataset rows, timeout, and journey pass criteria. Add or duplicate journeys
+   to build a weighted mix. Dataset rows contain string values with identical keys.
+5. Use **Preview sequence** for a traffic-free walkthrough; **Preview failure
+   here** illustrates the engine's stop-and-skip behavior. It does not simulate
+   responses or assertion outcomes. **Validate** performs authoritative engine
+   validation. Save the scenario, then explicitly choose **Start run**.
+
+Drag the background to pan; use the zoom buttons, Ctrl/Command + scroll, **Fit**,
+or **Full screen** to navigate. Keyboard users can tab through request cards and
+activate them with Enter/Space. The inspector provides all reordering controls.
+Selection, zoom, and positions never change execution or appear in exported JSON.
+
+Unfinished inspector fields block saving, validation, export, and starting. Fix
+them or use Undo; switching the main authoring tab preserves the draft. Loading
+a different starter, library entry, or valid Advanced JSON replaces the canvas
+draft and clears its undo history. Changing Test settings also clears canvas undo
+history so Undo cannot overwrite newer traffic settings. Save work before
+replacing the test or reloading.
+
+The current engine executes sequential HTTP journeys. Branches, loops, and
+standalone pause nodes are not supported. Think time belongs to the preceding
+request and runs only after that request succeeds, including after the final step.
+
+After a journey run finishes, **Journey results** shows the actual per-step
+p95, error rate, failure counts, and skipped requests. Select **Journey summary**
+for whole-journey measurements. No latency is shown when there are no samples;
+step p95 values cannot be summed into journey p95. The diagram is read-only.
+
 Both editors update the same configuration. With phases present, their rates
 and durations control the workload; the single-duration/rate fields are hidden.
 **Use a single rate** removes phases and sets a rate of 20/s. Switching to users
@@ -175,7 +224,8 @@ with add/remove controls and zero-rate pauses. Blank pass criteria disable their
 checks; explicit zero remains a zero limit. The preview distinguishes planned
 arrivals from actual work and explains users-mode throughput. Optional worker,
 diagnostic, and telemetry settings fold away. Advanced JSON remains available
-for journey steps, data, variables, and whole-journey/scenario checks.
+for all CLI fields; the Journey canvas also edits steps, data, variables, and
+per-journey criteria.
 
 Invalid form drafts block validation, saving, export, and execution rather than
 using an older serialized configuration. Editing valid JSON repopulates the form.

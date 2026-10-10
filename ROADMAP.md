@@ -26,6 +26,8 @@ between sessions; update it when functionality or priorities change.
 - [x] Browser dashboard to create, validate, run, and compare tests.
 - [x] Live phase, throughput, latency, error, and missed-demand charts.
 - [x] Saved runs, reusable scenarios, and import/export.
+- [x] Sequential journey canvas with request/data editing, dependency links, undo,
+  sequence preview, and final per-step measurements.
 
 ## 4. Scale and observability
 
@@ -59,15 +61,37 @@ of superiority over JMeter is justified until milestone 5 is complete.
 Read this file, README.md, docs/scenarios.md, docs/dashboard.md,
 docs/diagnostics.md, docs/workers.md, and docs/telemetry.md first. Continue
 the bundled JMeter parity program in docs/jmeter-parity.md. The next slice is
-visual journey/step creation with extraction and assertion controls, followed by
-CSV datasets and richer HTTP workflows. Baseline regression work moves to the
+CSV datasets and richer HTTP workflows. The sequential journey canvas now edits
+requests, checks, extractions, data, variables, and per-journey criteria. Branches
+and loops need engine support before they can become executable visual controls.
+Baseline regression work moves to the
 final evidence stage of that program.
 Distributed users mode, balancing, and durable worker recovery remain separate
 extensions to the first worker version. Reuse the existing engine and validation.
 Preserve the measurement contract:
 journey arrivals and HTTP request attempts have separate counts and rates.
 
-Implementation decisions for target-server telemetry:
+### Sequential journey canvas acceptance (10 October 2026)
+
+- The canvas uses the existing CLI configuration and engine validation. There is
+  no second execution format, external diagram dependency, or network request
+  triggered by editing, validating, panning, zooming, or previewing.
+- Request, pause, assertion, extraction, dataset, variable, weight, timeout, and
+  per-journey criteria controls preserve unrelated configuration. Reordering
+  reports missing dependencies; drafts block validation, save, export, and start.
+- Final diagrams use recorded per-step and journey measurements, show skipped
+  requests without fabricated latency, and keep per-step p95 distinct from
+  whole-journey p95. Branches and loops remain engine backlog.
+- Go vet, all race-enabled tests, both builds, and eight JavaScript model tests
+  passed. The browser suite passed conversion from POST to journey, drag and
+  button reordering, undo, extraction/assertion edits, draft retention, save/load,
+  literal HTML content, and page bounds at 1440/1024/768/400/360/320 pixels.
+- The counted target received zero requests during editing, preview, validation,
+  and saving. Twenty successful journeys produced exactly 60 HTTP requests;
+  twenty deliberate login assertion failures produced 20, with later steps
+  skipped. This verifies the editor integration, not comparative performance.
+
+### Target-server telemetry implementation
 
 - Opt-in `telemetry` configuration selects 1–16 scalar gauges/counters from one
   Prometheus text endpoint. Names and full label sets match exactly; no PromQL,

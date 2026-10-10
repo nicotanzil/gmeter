@@ -41,6 +41,12 @@ Open the URL printed by gmeter, normally **http://127.0.0.1:8790**, and choose
 it send no workload traffic. **Start run** sends the requests. Saved scenarios and
 run history live in `.gmeter/` by default.
 
+For a multi-step workflow, load **Authenticated checkout journeys** to open the
+**Journey canvas**. Edit requests and response checks, trace extracted variables,
+and reorder steps visually. See the [canvas guide](docs/dashboard.md#edit-a-journey-on-the-flow-canvas).
+
+![Journey canvas with execution order, extracted-data links, and a request inspector](docs/images/journey-canvas.png)
+
 Prefer the CLI? With the demo still running:
 
 ```sh
@@ -86,6 +92,7 @@ they are not benchmarks. [Screenshot capture notes](docs/images/README.md).
 | HTTP workloads | HTTP/1.1 and HTTPS with HTTP/2 negotiation; methods, headers, bodies, status checks, pooled connections |
 | Traffic models | Concurrent users, fixed arrival rate, sequential rate phases, zero-rate pauses, seeded jitter |
 | Application journeys | Ordered steps, isolated cookies, inline data, variables, extraction, assertions, weighted scenario mixes |
+| Journey canvas | Visual request editing and reordering, dependency links, pauses, undo, sequence preview, and final step measurements |
 | Acceptance checks | Request and journey latency, error rates, missed demand, minimum started throughput |
 | Authoring | Guided builder, starter configurations, Advanced JSON, saved scenarios, first-test guide |
 | Results | Live charts, history, two-run comparison, JSON/HTML reports, portable run bundles |
@@ -95,7 +102,7 @@ they are not benchmarks. [Screenshot capture notes](docs/images/README.md).
 
 Full bundled JMeter parity is an active [development program](docs/jmeter-parity.md).
 Distributed users, browser JavaScript execution, and non-HTTP protocol adapters
-are not available. Visual journey editing, recording, and more authentication
+are not available. Recording and more authentication
 options remain on the roadmap. No benchmark establishes a performance advantage
 against JMeter.
 
@@ -158,5 +165,5 @@ security, operational, and independent measurement validation.
 The repository currently has no LICENSE file. Selecting a license is an open
 maintainer decision, tracked in the readiness guide.
 
-To check a development checkout, run `make check build` (vet, race-enabled tests,
-and both builds). See [CONTRIBUTING.md](CONTRIBUTING.md) for equivalent Go commands.
+To check a development checkout, run `make check build` (JavaScript checks, vet,
+race-enabled tests, and both builds). See [CONTRIBUTING.md](CONTRIBUTING.md) for prerequisites and equivalent commands.

@@ -3,7 +3,7 @@
 const $ = id => document.getElementById(id);
 const token = document.querySelector('meta[name="gmeter-token"]').content;
 let examples = [], library = [], runs = [], current = null, selectedScenario = '', activeID = '', view = 'build';
-let selectedRuns = new Set(), timer = null, polling = false, telemetryFormError = '', builderFormError = '';
+let selectedRuns = new Set(), timer = null, polling = false, telemetryFormError = '', builderFormError = '', journeyFormError = '';
 let coverage = [];
 const fmt = (value, digits = 1) => Number(value || 0).toLocaleString(undefined, {maximumFractionDigits: digits, minimumFractionDigits: digits});
 const count = value => Number(value || 0).toLocaleString();
@@ -23,6 +23,27 @@ async function api(path, method = 'GET', body) {
 
 function notice(message, bad = false) { $('notice').textContent = message; $('notice').className = bad ? 'bad' : ''; $('notice').hidden = false; }
 function validateMessage(message, kind = '') { $('validation').textContent = message; $('validation').className = `validation ${kind}`; }
+const journeyEditor = GmeterJourneyEditor.create($('journey-canvas'), {
+  read: () => { if (builderFormError || telemetryFormError) throw new Error(builderFormError || telemetryFormError); return readEditor(true); },
+  write: c => { $('config-json').value = JSON.stringify(c, null, 2); syncForm(c); validateMessage('Journey changed. Validate before running.'); },
+  onDraftError: error => { journeyFormError = error; },
+  settings: () => showBuilderTab('settings'),
+  validate: validateEditor,
+  save: () => saveScenario(false),
+  start: () => {
+    if (activeID) { notice('A run is already active. Stop it or wait for it to finish.', true); return; }
+    if (!$('config-form').checkValidity()) { showBuilderTab('settings'); $('config-form').reportValidity(); return; }
+    $('config-form').requestSubmit();
+  }
+});
+const runJourneyEditor = GmeterJourneyEditor.create($('run-journey-canvas'), {readonly:true});
+function showBuilderTab(tab) {
+  $('builder-settings').hidden = tab !== 'settings'; $('journey-canvas').hidden = tab !== 'journey';
+  $('builder-settings-tab').setAttribute('aria-pressed', tab === 'settings'); $('builder-journey-tab').setAttribute('aria-pressed', tab === 'journey');
+  if (tab === 'journey') journeyEditor.show();
+}
+$('builder-settings-tab').addEventListener('click', () => showBuilderTab('settings'));
+$('builder-journey-tab').addEventListener('click', () => showBuilderTab('journey'));
 function showView(next) {
   view = next; $('notice').hidden = true;
   for (const name of ['build', 'live', 'history', 'guide', 'coverage']) $('view-' + name).hidden = name !== next;
@@ -30,12 +51,15 @@ function showView(next) {
   window.scrollTo(0, 0);
   if (next === 'history') refresh().catch(e => notice(e.message, true));
   if (next === 'live' && current) requestAnimationFrame(drawCharts);
+  if (next === 'build' && !$('journey-canvas').hidden) journeyEditor.show();
+  if (next === 'live' && !$('run-journey-canvas').hidden) runJourneyEditor.show();
 }
 for (const e of document.querySelectorAll('[data-view]')) e.addEventListener('click', () => showView(e.dataset.view));
 
 function readEditor(ignoreTelemetryError = false) {
   if (builderFormError&&!ignoreTelemetryError) throw new Error(builderFormError);
   if (telemetryFormError&&!ignoreTelemetryError) throw new Error(telemetryFormError);
+  if (journeyFormError&&!ignoreTelemetryError) throw new Error(journeyFormError);
   const c = JSON.parse($('config-json').value);
   if (!c || Array.isArray(c) || typeof c !== 'object') throw new Error('The configuration must be a JSON object.');
   return c;
@@ -43,12 +67,13 @@ function readEditor(ignoreTelemetryError = false) {
 function setEditor(config, id = '') {
   selectedScenario = id;
   $('config-json').value = JSON.stringify(config, null, 2);
-  syncForm(config);
+  syncForm(config, true);
+  showBuilderTab(config.scenarios?.length ? 'journey' : 'settings');
   validateMessage('Configuration changed. Validate or start a run.');
   $('save-scenario').textContent = id ? 'Update scenario' : 'Save scenario';
   $('save-copy').hidden = !id;
 }
-function syncForm(c) {
+function syncForm(c, replaceJourneyDraft = false) {
   telemetryFormError=''; builderFormError='';
   const journey = !!c.scenarios?.length, stages = !!c.stages?.length, rateMode = (c.mode || 'users') === 'rate';
   $('name').value = c.name || 'HTTP test'; $('url').value = c.url || '';
@@ -82,6 +107,8 @@ function syncForm(c) {
   $('duration').disabled = stages; $('rate').disabled = stages || !rateMode; $('vus').disabled = rateMode; $('capacity').disabled = !rateMode; $('distribution').disabled = !rateMode; $('think-time').disabled = rateMode; $('stages-hint').hidden = !stages;
   $('phase-summary').hidden = !stages; $('single-phase').hidden = !stages;
   $('phase-summary').replaceChildren(...(c.stages || []).map(s => node('span', `${s.name || 'Phase'} · ${s.rate}/s · ${s.duration}`, 'phase-chip')));
+  $('builder-workload-label').textContent = journey ? `${c.scenarios.length} journey(s)` : 'Single request';
+  journeyEditor.load(c, replaceJourneyDraft);
 }
 
 // Draft fields are parsed together: an invalid draft never silently runs an older config.
@@ -167,6 +194,7 @@ function updateBuilder() {
     const workers = $('workers').value.split(/[\n,]/).map(x => x.trim()).filter(Boolean);
     if (workers.length) c.workers = workers; else delete c.workers;
     builderFormError = ''; $('config-json').value = JSON.stringify(c, null, 2);
+    journeyEditor.load(c);
     $('tls-warning').hidden = !c.insecure; updatePreview(c); validateMessage('Configuration changed. Validate or start a run.');
   } catch (e) { builderFormError = e.message; validateMessage(builderFormError, 'bad'); $('plan-preview').replaceChildren(node('p', 'Fix the configuration before running.', 'helper')); }
 }
@@ -214,20 +242,20 @@ $('mode').addEventListener('change', () => {
   } catch (e) { validateMessage(e.message, 'bad'); }
 });
 $('config-json').addEventListener('input', () => {
-  try { syncForm(readEditor(true)); validateMessage('Configuration changed. Validate or start a run.'); }
-  catch (e) { validateMessage('Invalid JSON: ' + e.message, 'bad'); }
+  try { syncForm(readEditor(true), true); validateMessage('Configuration changed. Validate or start a run.'); }
+  catch (e) { validateMessage('Invalid JSON: ' + e.message, 'bad'); journeyEditor.invalid('Correct Advanced JSON before editing the canvas: ' + e.message); }
 });
 $('single-phase').addEventListener('click', () => { try { const c = readEditor(); delete c.stages; c.rate = 20; setEditor(c, selectedScenario); } catch (e) { notice(e.message, true); } });
 $('starter').addEventListener('change', () => {
   const selected = examples.find(e => e.id === $('starter').value);
   if (selected) { setEditor(selected.config); $('starter').value = ''; notice('Example loaded. The examples target the local demo server on port 8787.'); }
 });
-$('validate').addEventListener('click', async () => {
-  try {
-    const data = await (await api('/api/validate', 'POST', readEditor())).json();
-    validateMessage(`Valid · ${fmt(data.load_seconds)}s load · ${data.phase_count} phase(s) · ${data.workload} workload`, 'good');
-  } catch (e) { validateMessage(e.message, 'bad'); }
-});
+async function validateEditor() {
+  const data = await (await api('/api/validate', 'POST', readEditor())).json();
+  validateMessage(`Valid · ${fmt(data.load_seconds)}s load · ${data.phase_count} phase(s) · ${data.workload} workload`, 'good');
+  return data;
+}
+$('validate').addEventListener('click', () => validateEditor().catch(e => validateMessage(e.message, 'bad')));
 $('config-form').addEventListener('submit', async e => {
   e.preventDefault(); $('start').disabled = true;
   try {
@@ -349,6 +377,8 @@ function renderRun() {
   $('journey-summary').replaceChildren(...[`${fmt(j.started_per_second)} journeys/s`, `${count(j.completed)} completed journeys`, `Journey p95 ${j.latency?.samples ? fmt(j.latency.p95_ms) + ' ms' : '—'}`, `${fmt(j.error_percent, 2)}% journey errors`].map(t => node('span', t)));
   $('traffic-unit').textContent = journeys ? 'HTTP req/s + journeys/s' : 'req/s'; $('phase-unit').textContent = run.config.mode === 'users' ? 'concurrent users' : (journeys ? 'journeys/s' : 'requests/s');
   $('results-panel').hidden = !run.result;
+  $('run-journey-canvas').hidden = !run.result?.scenarios?.length;
+  if (!$('run-journey-canvas').hidden) runJourneyEditor.loadRun(run);
   if (run.result) renderResults(run.result);
   renderDiagnostics(run, latest, r, traffic);
   renderWorkers(run,latest);
@@ -649,6 +679,7 @@ function openGuide(topic) {
 }
 function openBuilderField(id) {
   showView('build');
+  showBuilderTab('settings');
   const target = $(id), details = target.closest('details');
   if (details) details.open = true;
   target.scrollIntoView({block: 'center'});
@@ -667,7 +698,7 @@ function setWelcomeVisible(visible) {
 let welcomeDismissed = false;
 try { welcomeDismissed = localStorage.getItem(welcomePreference) === 'true'; } catch { /* Show the tip for this visit. */ }
 $('welcome-tip').hidden = welcomeDismissed;
-$('dismiss-welcome').addEventListener('click', () => { setWelcomeVisible(false); $('name').focus({preventScroll: true}); });
+$('dismiss-welcome').addEventListener('click', () => { setWelcomeVisible(false); $('builder-settings-tab').focus({preventScroll: true}); });
 $('show-welcome').addEventListener('click', () => { setWelcomeVisible(true); showView('build'); $('welcome-title').scrollIntoView({block: 'center'}); $('welcome-tip').querySelector('button').focus({preventScroll: true}); });
 $('load-practice').addEventListener('click', () => {
   const example = examples.find(e => e.id === 'smoke');

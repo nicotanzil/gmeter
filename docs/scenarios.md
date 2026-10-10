@@ -12,6 +12,11 @@ data rows, captures a token, keeps the session cookie, reads a profile, and
 checks out. The default run schedules **20 journeys**, resulting in **60 HTTP
 attempts** when all three steps succeed.
 
+In the dashboard, load **Authenticated checkout journeys** to edit the same
+configuration on the [Journey canvas](dashboard.md#edit-a-journey-on-the-flow-canvas).
+The canvas supports requests, pauses, checks, extraction, variables, data rows,
+weights, and per-scenario pass criteria, with Advanced JSON available alongside it.
+
 ```sh
 make build
 # Run in another terminal:

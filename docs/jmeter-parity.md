@@ -30,7 +30,7 @@ better throughput, accuracy, resource use, or target health.
 | Workloads | Fixed users, constant/jittered arrivals, rate phases, weighted journeys, bounded admission and explicit drops | User ramps and groups, finite loops, conditional control flow, synchronization, setup/teardown, additional timer distributions |
 | Data and customization | Inline rows and scoped strings | File datasets, function library, processor hooks, scripting and extension APIs |
 | Other protocols | HTTP(S) | Database, directory, messaging, TCP, transfer, mail, process and Java adapters; Bolt; legacy support decisions |
-| Authoring and compatibility | Local web app, JSON plans, saved runs and portable bundles | Visual journey editor, recording, component tree/scoping, JMX migration and external result exchange |
+| Authoring and compatibility | Local web app, sequential journey canvas, JSON plans, saved runs and portable bundles | Recording, component tree/scoping, JMX migration and external result exchange |
 | Analysis | Bounded histograms, phase/scenario/step metrics, portable reports, comparisons, generator diagnostics and target metric observation | Debug samples, configurable result sinks, more charts, offline sample analysis, notification listeners |
 | Distributed execution | A global rate partitioned across authenticated workers | Distributed users, file deployment, recovery, and compatibility with existing distributed plans |
 
@@ -50,7 +50,7 @@ Detailed rows link directly to the relevant official manual pages.
 - [x] Graphical headers, raw bodies, success statuses, phases and request thresholds.
 - [x] Opt-in insecure workload HTTPS, explicit result labeling, worker propagation.
 - [x] Searchable in-app comparison with honest availability and official references.
-- [ ] Visual journey/step editor, assertions, extraction, data and variable controls.
+- [x] Sequential journey/step canvas, assertions, extraction, data and variable controls.
 - [ ] File-backed CSV datasets with deterministic local/fleet allocation and EOF rules.
 - [ ] Regex, boundary, CSS, XPath, JSONPath and JMESPath extraction and assertions.
 - [ ] Authentication helpers, credentials from environment, redirects, form/multipart uploads.

@@ -497,7 +497,7 @@
       "name": "Visual test creation and editing",
       "group": "Authoring",
       "status": "partial",
-      "detail": "Request, header, body, phase, and threshold controls. Journeys, data, extraction, and assertions still require JSON. No scoped tree editor.",
+      "detail": "Request, header, body, phase, and threshold controls plus a sequential journey canvas for requests, pauses, data, variables, extraction, and assertions. No scoped component tree or executable branches/loops.",
       "stage": "1 \u00b7 HTTP",
       "source": "https://jmeter.apache.org/usermanual/build-test-plan.html",
       "evidence": "internal/dashboard/assets"
