@@ -242,7 +242,7 @@ func Combine(c config.Config, start time.Time, load, total time.Duration, parts 
 	}
 	var live []LiveData
 	for _, part := range parts {
-		if part.Merge == nil || part.Name != p.Name || part.URL != p.URL || part.Mode != p.Mode || len(part.Merge.Phases) != len(p.Phases) || len(part.Merge.Scenarios) != len(p.ScenarioPlans) {
+		if part.Merge == nil || part.Name != p.Name || part.URL != p.URL || part.Mode != p.Mode || part.Insecure != p.Insecure || len(part.Merge.Phases) != len(p.Phases) || len(part.Merge.Scenarios) != len(p.ScenarioPlans) {
 			return Result{}, fmt.Errorf("worker result does not match its configuration")
 		}
 		if part.Merge.Requests.Counts.InFlight != 0 || part.Merge.Journeys.Counts.InFlight != 0 {
@@ -261,7 +261,7 @@ func Combine(c config.Config, start time.Time, load, total time.Duration, parts 
 	if p.IsJourney() {
 		workload = "journeys"
 	}
-	r := Result{SchemaVersion: 4, Name: p.Name, URL: p.URL, Method: p.Method, Mode: p.Mode, ConcurrencyLimit: p.MaxInFlight, StartedAt: start.UTC(), PlannedLoadSeconds: p.LoadDuration.Seconds(), LoadSeconds: load.Seconds(), TotalSeconds: max(load, total).Seconds(), Interrupted: interrupted, Workload: workload, ArrivalDistribution: p.ArrivalDistribution, Seed: p.Seed, Snapshot: requests, Journeys: journeys, Distribution: &distribution}
+	r := Result{SchemaVersion: 4, Name: p.Name, URL: p.URL, Method: p.Method, Mode: p.Mode, Insecure: p.Insecure, ConcurrencyLimit: p.MaxInFlight, StartedAt: start.UTC(), PlannedLoadSeconds: p.LoadDuration.Seconds(), LoadSeconds: load.Seconds(), TotalSeconds: max(load, total).Seconds(), Interrupted: interrupted, Workload: workload, ArrivalDistribution: p.ArrivalDistribution, Seed: p.Seed, Snapshot: requests, Journeys: journeys, Distribution: &distribution}
 	var offset time.Duration
 	for i, phase := range p.Phases {
 		var states []LiveData

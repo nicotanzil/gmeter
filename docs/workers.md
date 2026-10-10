@@ -1,6 +1,8 @@
 # Distributed workers
 
-Version `0.5.0-dev` adds authenticated worker processes and a coordinator for
+[Documentation](README.md) · [Project overview](../README.md)
+
+Authenticated worker processes and a coordinator support
 **rate-mode** tests. Single requests, journeys, weighted mixes, seeded jitter,
 and sequential phases use the same engine. Users mode currently runs locally.
 
@@ -10,7 +12,9 @@ Build with `make build`. Generate one token and securely provide the same value
 to each worker and coordinator through `GMETER_WORKER_TOKEN`. It must contain
 32–512 ASCII characters without whitespace. You can generate a value once with
 `openssl rand -hex 32`; do not generate different tokens for each process.
-Credentials are never stored in configurations, reports, or exported bundles.
+Worker-control tokens are never stored in configurations, reports, or exported
+bundles. Supplied workload headers, bodies, and data remain part of saved
+configuration; see [security](../SECURITY.md).
 
 With that environment variable set in each terminal:
 

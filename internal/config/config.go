@@ -40,6 +40,7 @@ type Config struct {
 	Rate                int               `json:"rate"`
 	MaxInFlight         int               `json:"max_in_flight"`
 	Timeout             string            `json:"timeout"`
+	Insecure            bool              `json:"insecure,omitempty"`
 	ThinkTime           string            `json:"think_time,omitempty"`
 	MaxResponseBytes    int64             `json:"max_response_bytes"`
 	SuccessStatuses     []int             `json:"success_statuses,omitempty"`

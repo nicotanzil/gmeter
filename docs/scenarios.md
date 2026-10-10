@@ -1,5 +1,7 @@
 # Application journeys
 
+[Documentation](README.md) · [Project overview](../README.md)
+
 A scenario is an ordered sequence of HTTP steps. One scheduled arrival starts
 one journey through the chosen scenario. A successful journey completes every
 step and pause. The first failed step stops the journey; subsequent steps are

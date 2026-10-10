@@ -1,5 +1,7 @@
 # Generator diagnostics and HTTP timing
 
+[Documentation](README.md) · [Project overview](../README.md)
+
 Diagnostics are enabled by default in the CLI and dashboard. They augment
 request and journey results without changing their count equations, thresholds,
 or latency definitions.

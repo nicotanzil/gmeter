@@ -1,0 +1,61 @@
+# gmeter documentation
+
+[Project overview](../README.md)
+
+Start with a small local test, learn what its measurements mean, then add journeys,
+workers, and server telemetry as needed. These guides describe the current source
+checkout. Planned capabilities are identified separately in the roadmap.
+
+## Learn the workflow
+
+| Guide | What you will learn |
+| --- | --- |
+| [Getting started](getting-started.md) | Build, start the demo and dashboard, run a first test, and check its result |
+| [Browser dashboard](dashboard.md) | Create tests, save scenarios, inspect live results, compare runs, and exchange files |
+| [Measurement definitions](measurements.md) | Offered vs delivered demand, request/journey units, percentiles, and verdicts |
+| [CLI reference](cli.md) | Commands, flags, configuration precedence, environment, exit codes, and CI |
+
+The app also has a **User guide** in its sidebar, with a practice configuration,
+contextual explanations, and troubleshooting.
+
+## Configure a workload
+
+| Guide | Scope |
+| --- | --- |
+| [Configuration reference](configuration.md) | Request settings, defaults, traffic phases, and acceptance checks |
+| [Application journeys](scenarios.md) | Sessions, data rows, templates, extraction, assertions, and weighted mixes |
+| [HTTPS](https.md) | Verified defaults, opt-in insecure workload requests, and separate trust settings |
+| [Distributed workers](workers.md) | Tokens, TLS, shared schedules, quotas, cancellation, and unknown traffic |
+| [Generator diagnostics](diagnostics.md) | Process resources, connection reuse, HTTP timings, and instrumentation limits |
+| [Target-server telemetry](telemetry.md) | Selected exporter series, authentication, gaps, counter resets, and coverage |
+
+Starter files are in [examples/](../examples/). The dashboard embeds the same files;
+its binary does not need the source tree at runtime.
+
+## Operate and contribute
+
+- [Operations](operations.md): run planning, artifacts, retention, workspace backup,
+  shutdown, recovery, and troubleshooting.
+- [Security](../SECURITY.md): trust boundaries, data handling, and reporting a concern.
+- [Enterprise readiness](readiness.md): existing safeguards and outstanding adoption gates.
+- [Architecture](architecture.md): components and execution/data flows.
+- [Contributing](../CONTRIBUTING.md): development setup, meaningful verification,
+  documentation, and review expectations.
+- [JMeter coverage](jmeter-parity.md) and [roadmap](../ROADMAP.md): supported features,
+  partial coverage, and delivery gates.
+
+## App tour
+
+**Create a test.** Set requests, traffic, and criteria, then review the planned demand.
+
+![Test builder with workload configuration and demand preview](images/test-builder.jpg)
+
+**Read a result.** Inspect measured traffic and checks before increasing the load.
+
+![Completed demo run with traffic, latency, request errors, and missed demand](images/run-results.jpg)
+
+**Learn in the app.** Follow the first-test walkthrough and return to the relevant field.
+
+![User guide with the first-test walkthrough](images/user-guide.jpg)
+
+All images use local demonstration data. [Capture and update instructions](images/README.md).

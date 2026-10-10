@@ -58,7 +58,10 @@ of superiority over JMeter is justified until milestone 5 is complete.
 
 Read this file, README.md, docs/scenarios.md, docs/dashboard.md,
 docs/diagnostics.md, docs/workers.md, and docs/telemetry.md first. Continue
-milestone 4 with baseline comparisons and automated regression detection.
+the bundled JMeter parity program in docs/jmeter-parity.md. The next slice is
+visual journey/step creation with extraction and assertion controls, followed by
+CSV datasets and richer HTTP workflows. Baseline regression work moves to the
+final evidence stage of that program.
 Distributed users mode, balancing, and durable worker recovery remain separate
 extensions to the first worker version. Reuse the existing engine and validation.
 Preserve the measurement contract:
@@ -335,3 +338,86 @@ Milestone 1 validation on 2026-10-04:
 
 Generated binaries, local reports, and scratch verification scripts are ignored
 by .gitignore. The demo target is a correctness illustration, not a benchmark.
+
+## 6. Bundled JMeter parity program (2026-10-08)
+
+User priorities: improve creating/configuring tests, support insecure workload
+HTTPS, cover bundled JMeter first, then add capabilities beyond that baseline.
+The detailed inventory and gates live in [docs/jmeter-parity.md](docs/jmeter-parity.md)
+and `internal/dashboard/assets/coverage.json`; the dashboard renders that catalog.
+
+- [x] Guided builder, headers/body/status controls, graphical phases, pass criteria.
+- [x] In-app user guide, first-test practice settings, contextual help, and troubleshooting.
+- [x] Explicit insecure workload HTTPS across CLI, journeys and workers.
+- [x] Visible TLS state in artifacts/imports and comparison conditions.
+- [x] Sourced in-app capability comparison with honest current limitations.
+- [ ] Finish HTTP authoring, data, correlation, assertions and recording.
+- [ ] Execution controls, user groups/ramps, debugging and distributed users.
+- [ ] Protocol adapters and integration fixtures.
+- [ ] Java bridge, scripting, extensions, JMX/JTL compatibility and conformance.
+- [ ] Beyond-parity protocols, result integrations and measured benchmark evidence.
+
+This program supersedes the previous handoff ordering; it does not mark full
+JMeter parity complete. Preserve Go's native path; optional Java adapters require
+a separate supported runtime. Do not label grouped capability coverage as a
+percentage of component/option compatibility or claim performance superiority.
+
+Validation on 2026-10-08:
+
+- `make check build` passed vet, race tests across all ten internal packages, and both builds.
+- TLS fixtures cover verified defaults, explicit opt-in, HTTP/2, journeys, worker
+  propagation, independent worker/telemetry verification, CLI false overrides,
+  report labeling, bundle round-trips, and mismatched-bundle rejection.
+- All seven example configurations still validate.
+- Browser QA passed staged load with a zero-rate pause (5 attempts), users mode
+  (6 attempts), and an edited POST test with a disabled error criterion
+  (12 attempts). Each completed with zero request errors or missed demand.
+- Invalid header drafts block validation; removing a phase with an empty rate
+  recovers correctly. Removing the last phase returns to a single rate.
+- Desktop and 320px checks showed no page overflow; coverage search/filtering
+  and the 68-family catalog rendered correctly; browser warning/error logs were empty.
+- QA data and builder screenshot are under ignored `work/`; the review dashboard
+  uses `.gmeter/` on localhost:8790. No external targets were exercised.
+
+User-guide validation on 2026-10-09:
+
+- Dashboard race tests, the dashboard binary build, JavaScript syntax, and diff
+  whitespace checks passed.
+- The practice preset planned and completed 10 local-demo requests with no
+  errors or missed arrivals; all configured checks passed. Loading the preset
+  and validating it did not start a run.
+- Contextual help preserved draft edits and the displayed result. Topic links
+  focused the relevant heading, and return links focused the matching field.
+- Welcome-tip dismissal survived reload, restoring the tip worked, and the
+  sidebar guide remained available. Troubleshooting disclosures opened correctly.
+- Desktop and 320px guide/builder layouts had no horizontal page overflow;
+  browser warning/error logs were empty.
+- QA history is isolated under ignored `work/guides-qa/`. The idle preview on
+  port 8790 was updated with its existing history, and its editor draft was
+  preserved in `work/editor-draft-before-guides.json` before refreshing.
+
+## 7. Documentation and adoption guidance (2026-10-09)
+
+- [x] Concise README with runnable setup, capability boundaries, and three real app screenshots.
+- [x] Documentation index, first-test guide, configuration/CLI references, and measurement definitions.
+- [x] Architecture, operations, workspace backup/recovery, security, and contribution guidance.
+- [x] Enterprise readiness gates separating implemented safeguards from outstanding release, security, licensing, and compatibility decisions.
+
+Validated against the current development checkout:
+
+- Both builds, vet, and race-enabled tests in all ten internal packages passed.
+- All seven starter configurations and three complete JSON examples in the docs validated.
+- Twenty Markdown files passed local link/anchor checks (158 references), and
+  all 30 run flags appear in the CLI reference. Nine image references resolve.
+- The rendered README loaded all three images; the expandable gallery and
+  getting-started link worked. Images total about 315 KiB, use isolated local-demo
+  data, and are documented as demonstrations rather than benchmarks.
+- CLI smoke completed 40 requests; the screenshot baseline completed 800 requests.
+  Both passed with no errors or missed arrivals.
+- Cleanly stopped and archived the isolated screenshot workspace, restored it
+  into a separate directory, reopened its completed 800-request history record,
+  and exported its run bundle without sending traffic.
+
+Documentation does not certify enterprise readiness. Enforced CI, independent
+benchmark/security review, release provenance/support policies, and a maintainer
+license decision remain adoption gates. No release, tag, or publication was changed.

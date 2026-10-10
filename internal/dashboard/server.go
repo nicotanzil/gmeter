@@ -198,7 +198,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodHead {
 			t.Execute(w, s.token)
 		}
-	case "/app.js", "/style.css":
+	case "/app.js", "/style.css", "/coverage.json":
 		body, err := assets.ReadFile("assets" + r.URL.Path)
 		if err != nil {
 			fail(w, 404, "Asset not found.")
@@ -207,6 +207,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		kind := "text/javascript; charset=utf-8"
 		if r.URL.Path == "/style.css" {
 			kind = "text/css; charset=utf-8"
+		}
+		if r.URL.Path == "/coverage.json" {
+			kind = "application/json; charset=utf-8"
 		}
 		w.Header().Set("Content-Type", kind)
 		if r.Method != http.MethodHead {
@@ -477,7 +480,7 @@ func (s *Server) importRun(w http.ResponseWriter, r *http.Request) {
 	if p.IsJourney() {
 		workload = "journeys"
 	}
-	if result == nil || (result.SchemaVersion < 2 || result.SchemaVersion > 5) || result.Workload != workload || result.URL != run.Config.URL || result.Mode != run.Config.Mode || result.StartedAt.IsZero() || result.PlannedLoadSeconds != p.LoadDuration.Seconds() || result.LoadSeconds < 0 || result.LoadSeconds > result.PlannedLoadSeconds || result.TotalSeconds < result.LoadSeconds {
+	if result == nil || (result.SchemaVersion < 2 || result.SchemaVersion > 5) || result.Workload != workload || result.URL != run.Config.URL || result.Mode != run.Config.Mode || result.Insecure != run.Config.Insecure || result.StartedAt.IsZero() || result.PlannedLoadSeconds != p.LoadDuration.Seconds() || result.LoadSeconds < 0 || result.LoadSeconds > result.PlannedLoadSeconds || result.TotalSeconds < result.LoadSeconds {
 		fail(w, 400, "Import a completed schema 2–5 run bundle exported with Run + timeline. Configuration and results must match.")
 		return
 	}

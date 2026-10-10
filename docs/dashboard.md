@@ -1,5 +1,7 @@
 # Local browser dashboard
 
+[Documentation](README.md) · [Project overview](../README.md)
+
 ```sh
 make build
 ./bin/gmeter ui
@@ -17,16 +19,24 @@ Start `./bin/gmeter-demo` separately to use examples on port 8787.
 The listen address must be an explicit loopback IP and port. Port `0` selects an
 available port. The default data directory is `.gmeter/` in the current directory.
 
+## App overview
+
+![Guided test builder and planned workload preview](images/test-builder.jpg)
+
+For a first test, follow [getting started](getting-started.md) or open **User guide**
+in the app. See [operations](operations.md) for workspace ownership, retention,
+backup, and recovery, and [security](../SECURITY.md) for trust boundaries.
+
 ## Build and reuse tests
 
 The form edits target, model, duration, rate or users, concurrency cap, timeout,
-arrival spacing, diagnostics, and optional target-server telemetry. **Scenario JSON** supports every CLI configuration field,
+arrival spacing, diagnostics, and optional target-server telemetry. **Advanced JSON** supports every CLI configuration field,
 including headers, bodies, phases, data rows, journeys, assertions, and thresholds.
 See [scenarios.md](scenarios.md) for journey syntax.
 
 Both editors update the same configuration. With phases present, their rates
-and durations control the workload; the single-duration/rate fields are disabled.
-**Use a single phase** removes phases and sets a rate of 20/s. Switching to users
+and durations control the workload; the single-duration/rate fields are hidden.
+**Use a single rate** removes phases and sets a rate of 20/s. Switching to users
 mode removes rate phases and jitter; switching to rate mode removes think time.
 Journey tests label rates as journeys/second and put HTTP methods on steps.
 
@@ -56,6 +66,8 @@ Exports validate the editor first and use a native browser download. The server
 retains at most 16 temporary configuration exports for five minutes in memory.
 
 ## Live measurements
+
+![Completed local-demo run with acceptance checks and workload charts](images/run-results.jpg)
 
 Only one dashboard run can be active. Independently started CLI processes are
 not coordinated with the dashboard, though each worker rejects a second active
@@ -153,3 +165,45 @@ credentials. Result JSON and HTML omit headers and bodies but include target URL
 This is a local single-user app without accounts, encryption at rest, remote
 access, or multi-user controls. Traffic is sent only after explicitly starting a
 run. A fair comparison against JMeter remains a later milestone.
+
+## Guided builder and coverage audit
+
+The builder groups configuration into **Request**, **Traffic**, and **Pass
+criteria**. Request settings expose header rows, a raw body, success status
+codes, and the [insecure HTTPS option](https.md). Traffic includes a phase editor
+with add/remove controls and zero-rate pauses. Blank pass criteria disable their
+checks; explicit zero remains a zero limit. The preview distinguishes planned
+arrivals from actual work and explains users-mode throughput. Optional worker,
+diagnostic, and telemetry settings fold away. Advanced JSON remains available
+for journey steps, data, variables, and whole-journey/scenario checks.
+
+Invalid form drafts block validation, saving, export, and execution rather than
+using an older serialized configuration. Editing valid JSON repopulates the form.
+Run checks and downloads appear before diagnostic charts. Run history supports
+name/result search, and changing views clears stale status notices.
+
+**Feature coverage** is a searchable comparison against bundled JMeter 5.6.3,
+with available, partial, and not-available families and official manual links.
+The [parity program](jmeter-parity.md) defines the backlog and completion gates.
+Backlog rows do not enable features.
+
+## In-app user guide
+
+**User guide** is always available from the sidebar. It covers a first local test,
+requests, traffic models, pass criteria, interpreting results, reusable workflows,
+and troubleshooting. Help links beside Request, Traffic, Pass criteria, Results,
+and History open the relevant topic. Guide shortcuts return to the matching
+builder field while preserving its current draft.
+
+The walkthrough can load a practice configuration: GET to the demo on port 8787,
+5 requests/s for 2s, concurrency 2, request timeout 1s, p95 limit 200ms, and no
+allowed request errors or missed arrivals. This plans 10 arrivals. Loading
+replaces only the editor draft after an explicit button click; it does not save
+a scenario, start the demo, or send workload traffic. The user must start the
+demo separately, Validate, then Start run.
+
+A welcome tip introduces the guide. Hide tip remembers a browser-local
+preference; User guide remains available. Show welcome tip again restores it.
+If browser storage is unavailable, the guide still works and the tip may return
+on the next visit. The guide does not mark a test complete just because the
+user opened a topic or loaded a preset.

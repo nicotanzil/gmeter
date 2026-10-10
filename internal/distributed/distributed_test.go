@@ -319,6 +319,7 @@ func TestWorkerTLSAndRedirectsDoNotLeakAuthentication(t *testing.T) {
 	c.Rate = 1
 	c.Duration = "50ms"
 	c.MaxInFlight = 1
+	c.Insecure = true // Workload TLS opt-in never disables worker verification.
 	if _, err := Run(context.Background(), c, testOptions()); err == nil {
 		t.Fatal("untrusted TLS certificate accepted")
 	}
@@ -333,5 +334,17 @@ func TestWorkerTLSAndRedirectsDoNotLeakAuthentication(t *testing.T) {
 	c.Workers = []string{redirect.URL}
 	if _, err := Run(context.Background(), c, testOptions()); err == nil || leaked.Load() != 0 {
 		t.Fatal("worker authentication followed a redirect")
+	}
+}
+
+func TestInsecureWorkloadRunsOnWorker(t *testing.T) {
+	_, worker := testWorker(t, "TLS workload", testToken)
+	target := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { fmt.Fprint(w, "ok") }))
+	defer target.Close()
+	c := rateConfig(target.URL, worker.URL)
+	c.Rate, c.Duration, c.MaxInFlight, c.Insecure = 1, "50ms", 1, true
+	r, err := Run(context.Background(), c, testOptions())
+	if err != nil || !r.Passed || !r.Insecure || !r.Distribution.Complete || r.Completed != 1 {
+		t.Fatalf("insecure worker workload: %v %+v", err, r)
 	}
 }

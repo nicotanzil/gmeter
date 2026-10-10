@@ -3,7 +3,8 @@
 const $ = id => document.getElementById(id);
 const token = document.querySelector('meta[name="gmeter-token"]').content;
 let examples = [], library = [], runs = [], current = null, selectedScenario = '', activeID = '', view = 'build';
-let selectedRuns = new Set(), timer = null, polling = false, telemetryFormError = '';
+let selectedRuns = new Set(), timer = null, polling = false, telemetryFormError = '', builderFormError = '';
+let coverage = [];
 const fmt = (value, digits = 1) => Number(value || 0).toLocaleString(undefined, {maximumFractionDigits: digits, minimumFractionDigits: digits});
 const count = value => Number(value || 0).toLocaleString();
 const active = run => run && ['running', 'stopping'].includes(run.status);
@@ -23,8 +24,8 @@ async function api(path, method = 'GET', body) {
 function notice(message, bad = false) { $('notice').textContent = message; $('notice').className = bad ? 'bad' : ''; $('notice').hidden = false; }
 function validateMessage(message, kind = '') { $('validation').textContent = message; $('validation').className = `validation ${kind}`; }
 function showView(next) {
-  view = next;
-  for (const name of ['build', 'live', 'history']) $('view-' + name).hidden = name !== next;
+  view = next; $('notice').hidden = true;
+  for (const name of ['build', 'live', 'history', 'guide', 'coverage']) $('view-' + name).hidden = name !== next;
   for (const e of document.querySelectorAll('.nav')) e.classList.toggle('active', e.dataset.view === next);
   window.scrollTo(0, 0);
   if (next === 'history') refresh().catch(e => notice(e.message, true));
@@ -33,6 +34,7 @@ function showView(next) {
 for (const e of document.querySelectorAll('[data-view]')) e.addEventListener('click', () => showView(e.dataset.view));
 
 function readEditor(ignoreTelemetryError = false) {
+  if (builderFormError&&!ignoreTelemetryError) throw new Error(builderFormError);
   if (telemetryFormError&&!ignoreTelemetryError) throw new Error(telemetryFormError);
   const c = JSON.parse($('config-json').value);
   if (!c || Array.isArray(c) || typeof c !== 'object') throw new Error('The configuration must be a JSON object.');
@@ -47,38 +49,154 @@ function setEditor(config, id = '') {
   $('save-copy').hidden = !id;
 }
 function syncForm(c) {
-  telemetryFormError='';
+  telemetryFormError=''; builderFormError='';
   const journey = !!c.scenarios?.length, stages = !!c.stages?.length, rateMode = (c.mode || 'users') === 'rate';
   $('name').value = c.name || 'HTTP test'; $('url').value = c.url || '';
   $('mode').value = c.mode || 'users';
   const method = c.method || 'GET';
   if (![...$('method').options].some(o => o.value === method)) $('method').append(node('option', method));
   $('method').value = method;
-  $('rate').value = c.rate || 20; $('vus').value = c.vus ?? 10;
+  $('rate').value = c.rate ?? 20; $('vus').value = c.vus ?? 10;
   $('capacity').value = c.max_in_flight ?? 100; $('duration').value = c.duration || '10s';
   $('timeout').value = c.timeout || '5s'; $('distribution').value = c.arrival_distribution || 'constant';
+  $('body').value = c.body || ''; $('body-field').hidden = journey;
+  $('success-statuses').value = (c.success_statuses || []).join(', ');
+  $('insecure').checked = !!c.insecure; $('tls-warning').hidden = !c.insecure;
+  $('think-time').value = c.think_time || ''; $('think-field').hidden = rateMode;
+  $('threshold-p95').value = c.thresholds?.p95 || '';
+  $('threshold-errors').value = c.thresholds?.max_error_percent === undefined ? 0 : c.thresholds.max_error_percent ?? '';
+  $('threshold-drops').value = c.thresholds?.max_drop_percent === undefined ? 0 : c.thresholds.max_drop_percent ?? '';
+  $('threshold-rps').value = c.thresholds?.min_started_rps ?? '';
+  $('journey-builder-note').hidden = !journey; $('journey-checks-note').hidden = !journey;
+  $('model-help').textContent = rateMode ? 'New work arrives at your chosen rate, even when the server slows down.' : 'Each user waits for its response, then repeats. Slower responses reduce request throughput.';
+  $('staged-field').hidden = !rateMode; $('staged').checked = stages; $('phase-editor').hidden = !stages;
+  renderHeaderRows(c.headers || {}); renderStageRows(c.stages || []); updatePreview(c);
   $('diagnostics').value = c.diagnostics === false ? 'false' : 'true';
   $('workers').value = (c.workers || []).join('\n');
   $('telemetry-url').value=c.telemetry?.url||''; $('telemetry-interval').value=c.telemetry?.interval||'1s'; $('telemetry-timeout').value=c.telemetry?.timeout||'1s'; $('telemetry-auth').value=c.telemetry?.bearer_auth?'true':'false';
   $('telemetry-metrics').value=JSON.stringify(c.telemetry?.metrics||[{name:'process_cpu_seconds_total',kind:'counter',unit:'seconds',title:'Server CPU time'},{name:'go_memstats_heap_alloc_bytes',kind:'gauge',unit:'bytes',title:'Server Go heap'}],null,2);
   $('rate-label').textContent = journey ? 'Journeys / second' : 'Requests / second';
   $('url-hint').textContent = journey ? 'Base origin for every step in your journeys.' : 'Full HTTP or HTTPS endpoint.';
-  $('method-field').hidden = journey; $('rate-field').hidden = !rateMode; $('vus-field').hidden = rateMode;
+  $('method-field').hidden = journey; $('rate-field').hidden = !rateMode || stages; $('duration-field').hidden = stages; $('traffic-limits').classList.toggle('staged', stages); $('vus-field').hidden = rateMode;
   $('capacity-field').hidden = !rateMode; $('distribution-field').hidden = !rateMode;
-  $('duration').disabled = stages; $('rate').disabled = stages; $('stages-hint').hidden = !stages;
+  $('duration').disabled = stages; $('rate').disabled = stages || !rateMode; $('vus').disabled = rateMode; $('capacity').disabled = !rateMode; $('distribution').disabled = !rateMode; $('think-time').disabled = rateMode; $('stages-hint').hidden = !stages;
   $('phase-summary').hidden = !stages; $('single-phase').hidden = !stages;
   $('phase-summary').replaceChildren(...(c.stages || []).map(s => node('span', `${s.name || 'Phase'} · ${s.rate}/s · ${s.duration}`, 'phase-chip')));
 }
 
-$('workers').addEventListener('input',()=>{
+// Draft fields are parsed together: an invalid draft never silently runs an older config.
+function renderHeaderRows(headers) {
+  $('header-rows').replaceChildren();
+  for (const [name, value] of Object.entries(headers)) addHeaderRow(name, value);
+}
+function addHeaderRow(name = '', value = '') {
+  const row = node('div', undefined, 'header-row');
+  for (const [label, content, key] of [['Header name', name, 'header-name'], ['Header value', value, 'header-value']]) {
+    const input = node('input'); input.value = content; input.placeholder = label; input.setAttribute('aria-label', label); input.dataset.field = key;
+    input.addEventListener('input', updateBuilder); row.append(input);
+  }
+  const remove = node('button', 'Remove', 'text-button'); remove.type = 'button'; remove.setAttribute('aria-label', 'Remove header');
+  remove.addEventListener('click', () => { row.remove(); updateBuilder(); }); row.append(remove); $('header-rows').append(row);
+}
+function renderStageRows(stages) {
+  $('stage-rows').replaceChildren();
+  stages.forEach((stage, i) => {
+    const row = node('div', undefined, 'stage-row');
+    for (const [label, key, value] of [['Name', 'name', stage.name], ['Duration', 'duration', stage.duration], ['Arrivals / s', 'rate', stage.rate]]) {
+      const field = node('label', label), input = node('input'); input.dataset.field = key; input.value = value ?? ''; input.setAttribute('aria-label', `Phase ${i+1} ${label}`);
+      if (key === 'rate') { input.type = 'number'; input.min = '0'; input.max = '1000000'; input.step = '1'; }
+      input.addEventListener('input', updateBuilder); field.append(input); row.append(field);
+    }
+    const remove = node('button', 'Remove', 'text-button'); remove.type = 'button'; remove.setAttribute('aria-label', `Remove phase ${i+1}`);
+    remove.addEventListener('click', () => {
+      row.remove();
+      if (!$('stage-rows').children.length) {
+        $('staged').checked = false; $('phase-editor').hidden = true; $('phase-summary').hidden = true;
+        $('duration').disabled = false; $('duration-field').hidden = false; $('rate').disabled = false; $('rate-field').hidden = false; $('traffic-limits').classList.remove('staged'); $('rate').value = 20; $('stages-hint').hidden = true;
+      }
+      [...$('stage-rows').children].forEach((item,index) => {
+        for (const input of item.querySelectorAll('input')) input.setAttribute('aria-label', `Phase ${index+1} ${{name:'Name',duration:'Duration',rate:'Arrivals / s'}[input.dataset.field]}`);
+        item.querySelector('button').setAttribute('aria-label', `Remove phase ${index+1}`);
+      });
+      updateBuilder();
+    });
+    row.append(remove); $('stage-rows').append(row);
+  });
+}
+function updateBuilder() {
   try {
-    const c=readEditor(), workers=$('workers').value.split(/[\n,]/).map(x=>x.trim()).filter(Boolean);
-    if (workers.length) c.workers=workers; else delete c.workers;
-    $('config-json').value=JSON.stringify(c,null,2); validateMessage('Configuration changed. Validate or start a run.');
-  } catch { validateMessage('Fix the scenario JSON before changing workers.','bad'); }
+    const c = readEditor(true);
+    for (const key of ['name', 'url', 'method', 'duration', 'timeout']) c[key] = $(key).value;
+    for (const [id,key] of [['rate','rate'],['vus','vus'],['capacity','max_in_flight']]) {
+      if (!$(id).value.trim() || !Number.isFinite(Number($(id).value))) throw new Error('Enter a number for ' + $(id).parentElement.textContent.trim() + '.');
+      c[key] = Number($(id).value);
+    }
+    c.diagnostics = $('diagnostics').value === 'true'; c.insecure = $('insecure').checked;
+    c.arrival_distribution = $('distribution').value;
+    if (!c.scenarios?.length) c.body = $('body').value;
+    const headers = Object.create(null), names = new Set();
+    for (const row of $('header-rows').children) {
+      const name = row.querySelector('[data-field="header-name"]').value.trim(), value = row.querySelector('[data-field="header-value"]').value;
+      if (!name && !value) continue;
+      if (!name) throw new Error('Every header with a value needs a name.');
+      if (names.has(name.toLowerCase())) throw new Error('Duplicate header name: ' + name);
+      names.add(name.toLowerCase()); headers[name] = value;
+    }
+    c.headers = headers;
+    const statuses = $('success-statuses').value.trim();
+    if (statuses) {
+      const codes = statuses.split(',').map(x => x.trim());
+      if (codes.some(x => !/^\d{3}$/.test(x))) throw new Error('Use comma-separated status codes, for example 200, 201.');
+      c.success_statuses = codes.map(Number);
+    } else delete c.success_statuses;
+    if (c.mode === 'users') { if ($('think-time').value.trim()) c.think_time = $('think-time').value.trim(); else delete c.think_time; }
+    if ($('staged').checked && c.mode === 'rate') {
+      c.rate = 0;
+      c.stages = [...$('stage-rows').children].map(row => {
+        const get = key => row.querySelector(`[data-field="${key}"]`).value;
+        if (!get('rate').trim()) throw new Error('Every phase needs an arrival rate (0 pauses traffic).');
+        return {name: get('name'), duration: get('duration'), rate: Number(get('rate'))};
+      });
+    } else delete c.stages;
+    c.thresholds = {...c.thresholds, p95: $('threshold-p95').value.trim()};
+    for (const [id,key] of [['errors','max_error_percent'],['drops','max_drop_percent'],['rps','min_started_rps']]) {
+      const input = $('threshold-'+id), value = input.value.trim();
+      if (input.validity.badInput) throw new Error('Enter a number or leave the pass criterion blank.');
+      c.thresholds[key] = value ? Number(value) : null;
+    }
+    const workers = $('workers').value.split(/[\n,]/).map(x => x.trim()).filter(Boolean);
+    if (workers.length) c.workers = workers; else delete c.workers;
+    builderFormError = ''; $('config-json').value = JSON.stringify(c, null, 2);
+    $('tls-warning').hidden = !c.insecure; updatePreview(c); validateMessage('Configuration changed. Validate or start a run.');
+  } catch (e) { builderFormError = e.message; validateMessage(builderFormError, 'bad'); $('plan-preview').replaceChildren(node('p', 'Fix the configuration before running.', 'helper')); }
+}
+function durationSeconds(value) {
+  // Matches the positive durations accepted by Go, including compound units.
+  const units = {ns:1e-9, us:1e-6, 'µs':1e-6, 'μs':1e-6, ms:1e-3, s:1, m:60, h:3600};
+  let rest = String(value || '').replace(/^\+/, ''), total = 0;
+  while (rest) { const part = /^(\d+(?:\.\d*)?|\.\d+)(ns|us|µs|μs|ms|s|m|h)/.exec(rest); if (!part) return null; total += Number(part[1])*units[part[2]]; rest = rest.slice(part[0].length); }
+  return total > 0 ? total : null;
+}
+function updatePreview(c) {
+  $('phase-summary').replaceChildren(...(c.stages || []).map(s => node('span', `${s.name || 'Phase'} · ${s.rate}/s · ${s.duration}`, 'phase-chip')));
+  const journey = !!c.scenarios?.length, unit = journey ? 'journeys' : 'requests';
+  const seconds = c.stages?.length ? c.stages.reduce((sum,p) => { const d=durationSeconds(p.duration); return sum === null || d === null ? null : sum+d; }, 0) : durationSeconds(c.duration);
+  const planned = c.stages?.length ? c.stages.reduce((sum,p) => { const d=durationSeconds(p.duration); return sum === null || d === null ? null : sum+Math.ceil(d*p.rate); },0) : seconds === null ? null : Math.ceil(seconds*c.rate);
+  const rows = [c.scenarios?.length ? `${c.scenarios.length} journey scenario(s)` : `${c.method || 'GET'} request`, c.url || 'Choose a target URL',
+    c.mode === 'rate' ? `${c.stages?.length ? c.stages.length+' phases' : c.rate+' '+unit+'/s'} · cap ${c.max_in_flight} concurrent ${unit}` : `${c.vus} concurrent users`,
+    seconds === null ? 'Enter a valid load duration' : `${fmt(seconds)}s load window`,
+    c.mode === 'rate' && planned !== null ? `${count(planned)} planned ${unit}; some may be missed` : 'Throughput depends on response time',
+    c.workers?.length ? `Run on ${c.workers.length} workers` : 'Run on this machine'];
+  if (c.insecure) rows.push('HTTPS verification disabled');
+  $('plan-preview').replaceChildren(...rows.map((text,i) => node('p', text, i===1 ? 'preview-target' : '')));
+}
+for (const id of ['name','url','method','duration','timeout','rate','vus','capacity','distribution','diagnostics','workers','body','success-statuses','insecure','think-time','threshold-p95','threshold-errors','threshold-drops','threshold-rps']) $(id).addEventListener('input', updateBuilder);
+$('add-header').addEventListener('click', () => { addHeaderRow(); $('header-rows').lastElementChild.querySelector('input').focus(); });
+$('staged').addEventListener('change', () => {
+  try { const c = readEditor(); if ($('staged').checked) { c.stages = [{name:'Phase 1',duration:c.duration,rate:c.rate}]; c.rate = 0; } else { c.rate = c.stages?.[0]?.rate || 20; delete c.stages; } setEditor(c, selectedScenario); }
+  catch(e) { $('staged').checked = !$('staged').checked; validateMessage(e.message, 'bad'); }
 });
-
-const fields = {name: 'name', url: 'url', method: 'method', rate: 'rate', vus: 'vus', capacity: 'max_in_flight', duration: 'duration', timeout: 'timeout', distribution: 'arrival_distribution', diagnostics:'diagnostics'};
+$('add-stage').addEventListener('click', () => { try { const c=readEditor(); c.stages.push({name:`Phase ${c.stages.length+1}`,duration:'10s',rate:c.stages.at(-1).rate}); setEditor(c, selectedScenario); } catch(e) { validateMessage(e.message, 'bad'); } });
 for (const id of ['telemetry-url','telemetry-interval','telemetry-timeout','telemetry-auth','telemetry-metrics']) $(id).addEventListener('input',()=>{
   try {
     const c=readEditor(true), url=$('telemetry-url').value.trim();
@@ -86,12 +204,6 @@ for (const id of ['telemetry-url','telemetry-interval','telemetry-timeout','tele
     else c.telemetry={...c.telemetry,url,interval:$('telemetry-interval').value,timeout:$('telemetry-timeout').value,bearer_auth:$('telemetry-auth').value==='true',metrics:JSON.parse($('telemetry-metrics').value)};
     telemetryFormError=''; $('config-json').value=JSON.stringify(c,null,2); validateMessage('Configuration changed. Validate or start a run.');
   } catch (e) { telemetryFormError='Fix the scenario and selected metrics JSON: '+e.message; validateMessage(telemetryFormError,'bad'); }
-});
-for (const [id, key] of Object.entries(fields)) $(id).addEventListener('input', () => {
-  try {
-    const c = readEditor(); c[key] = id==='diagnostics' ? $(id).value==='true' : (['rate', 'vus', 'capacity'].includes(id) ? Number($(id).value) : $(id).value);
-    $('config-json').value = JSON.stringify(c, null, 2); validateMessage('Configuration changed. Validate or start a run.');
-  } catch { validateMessage('Fix the scenario JSON before changing the form fields.', 'bad'); }
 });
 $('mode').addEventListener('change', () => {
   try {
@@ -220,6 +332,7 @@ function renderRun() {
   $('live-eyebrow').textContent = `${run.workload.toUpperCase()} WORKLOAD · ${run.config.mode.toUpperCase()} MODE`;
   if (run.imported) $('live-eyebrow').textContent += ' · IMPORTED';
   if (run.config.workers?.length) $('live-eyebrow').textContent += ` · ${run.config.workers.length} WORKERS`;
+  $('run-tls-warning').hidden = !run.config.insecure;
   $('run-status').textContent = run.status.toUpperCase(); $('run-status').className = 'status ' + run.status;
   $('stop').hidden = !activeID || run.id !== activeID; $('stop').disabled = run.status === 'stopping';
   $('view-active').hidden = !activeID || run.id === activeID;
@@ -451,7 +564,10 @@ function makeTable(headers, rows) {
 function renderHistory() {
   selectedRuns = new Set([...selectedRuns].filter(id => runs.some(r => r.id === id)));
   if (!runs.length) { $('history').replaceChildren(node('div', 'Completed and interrupted runs will appear here.', 'empty-small')); updateCompare(); return; }
-  const rows = runs.map(r => {
+  const query = $('history-search').value.trim().toLowerCase();
+  const visibleRuns = runs.filter(r => `${r.name} ${r.status} ${r.workload}`.toLowerCase().includes(query));
+  if (!visibleRuns.length) { $('history').replaceChildren(node('p', 'No runs match your search.', 'helper')); updateCompare(); return; }
+  const rows = visibleRuns.map(r => {
     const checkbox = node('input', undefined, 'history-select'); checkbox.type = 'checkbox'; checkbox.checked = selectedRuns.has(r.id); checkbox.setAttribute('aria-label', 'Select ' + r.name + ' for comparison'); checkbox.disabled = ['running', 'stopping', 'abandoned', 'error'].includes(r.status);
     checkbox.addEventListener('change', () => {
       if (checkbox.checked && selectedRuns.size >= 2) { checkbox.checked = false; notice('Select at most two runs to compare.', true); return; }
@@ -470,6 +586,7 @@ function renderHistory() {
   $('history').replaceChildren(makeTable(['', 'Test', 'Workload', 'Result', 'Actions'], rows)); updateCompare();
 }
 function updateCompare() { $('compare').disabled = selectedRuns.size !== 2; $('compare').textContent = `Compare selected (${selectedRuns.size}/2)`; }
+$('history-search').addEventListener('input', renderHistory);
 $('refresh-history').addEventListener('click', () => refresh().catch(e => notice(e.message, true)));
 $('compare').addEventListener('click', async () => {
   try {
@@ -477,7 +594,7 @@ $('compare').addEventListener('click', async () => {
     if (!a.result || !b.result) throw new Error('Both runs need final results to compare.');
     const A = a.result, B = b.result, arrivalA = A.workload === 'journeys' ? A.journeys : A, arrivalB = B.workload === 'journeys' ? B.journeys : B;
     const rows = [
-      ['Target URL', A.url, B.url, '—'], ['Workload', A.workload, B.workload, '—'], ['Model', A.mode, B.mode, '—'], ['Result', a.status, b.status, '—'],
+      ['Target URL', A.url, B.url, '—'], ['Workload', A.workload, B.workload, '—'], ['Model', A.mode, B.mode, '—'], ['HTTPS verification', A.insecure ? 'Disabled' : 'Enabled', B.insecure ? 'Disabled' : 'Enabled', '—'], ['Result', a.status, b.status, '—'],
     ];
     function metric(label, x, y, unit, digits = 1, deltaUnit = unit) {
       const delta = y - x, sign = delta > 0 ? '+' : '', pct = x !== 0 ? ` (${sign}${fmt(100 * delta / Math.abs(x), 1)}%)` : '';
@@ -500,6 +617,7 @@ $('compare').addEventListener('click', async () => {
     for (const [key, label] of [['url', 'target'], ['mode', 'model'], ['rate', 'rate'], ['stages', 'phases'], ['duration', 'planned duration'], ['vus', 'user count'], ['max_in_flight', 'capacity'], ['scenarios', 'journey definitions'], ['method', 'method'], ['body', 'body'], ['headers', 'headers'], ['timeout', 'timeout'], ['think_time', 'think time'], ['arrival_distribution', 'arrival spacing'], ['seed', 'seed'],['workers','worker pool'],['telemetry','target telemetry']]) if (JSON.stringify(a.config[key]) !== JSON.stringify(b.config[key])) mismatches.push(label);
     if (A.workload !== B.workload) mismatches.push('arrival unit'); if (A.interrupted || B.interrupted) mismatches.push('partial run');
     const hasDiagnostics=result=>!!(result.generator||result.http||result.distribution?.workers?.some(w=>w.generator||w.requests?.http));
+    if (!!a.config.insecure !== !!b.config.insecure) mismatches.push('HTTPS certificate verification');
     if (hasDiagnostics(A)!==hasDiagnostics(B)) mismatches.push('diagnostics instrumentation');
     const environment=result=>result.distribution ? result.distribution.workers.filter(w=>w.generator).map(w=>[w.index,w.generator.platform,w.generator.go_version,w.generator.logical_cpus,w.generator.final.gomaxprocs]) : (result.generator ? [[0,result.generator.platform,result.generator.go_version,result.generator.logical_cpus,result.generator.final.gomaxprocs]] : []);
     const envA=environment(A),envB=environment(B);
@@ -510,11 +628,66 @@ $('compare').addEventListener('click', async () => {
   } catch (e) { notice(e.message, true); }
 });
 
+function renderCoverage() {
+  const query = $('coverage-search').value.toLowerCase(), status = $('coverage-status').value;
+  const rows = coverage.features.filter(f => (!status || f.status === status) && `${f.name} ${f.group} ${f.detail}`.toLowerCase().includes(query));
+  $('coverage-count').textContent = `${rows.length} of ${coverage.features.length} capability families · Available = stated capability supported; Partial = limitations listed; Not available = backlog.`;
+  $('coverage-table').replaceChildren(makeTable(['Capability / JMeter reference', 'gmeter today', 'Coverage', 'Next stage'], rows.map(f => {
+    const name = node('div', f.name), link = node('a', f.group + ' ↗'); link.href = f.source; link.target = '_blank'; link.rel = 'noopener noreferrer'; name.append(link);
+    return [name, f.detail, node('span', {available:'Available',partial:'Partial',missing:'Not available'}[f.status], 'coverage-status '+f.status), f.stage];
+  })));
+}
+$('coverage-search').addEventListener('input', renderCoverage);
+$('coverage-status').addEventListener('change', renderCoverage);
+
+// Help changes views without replacing the editor or starting work.
+function openGuide(topic) {
+  showView('guide');
+  const heading = $(topic);
+  heading.scrollIntoView({block: 'start'});
+  heading.focus({preventScroll: true});
+}
+function openBuilderField(id) {
+  showView('build');
+  const target = $(id), details = target.closest('details');
+  if (details) details.open = true;
+  target.scrollIntoView({block: 'center'});
+  if (!target.matches('input,select,textarea,button')) target.tabIndex = -1;
+  target.focus({preventScroll: true});
+}
+for (const button of document.querySelectorAll('[data-guide-topic]')) button.addEventListener('click', () => openGuide(button.dataset.guideTopic));
+for (const button of document.querySelectorAll('[data-builder-target]')) button.addEventListener('click', () => openBuilderField(button.dataset.builderTarget));
+
+const welcomePreference = 'gmeter.welcome.dismissed.v1';
+function setWelcomeVisible(visible) {
+  $('welcome-tip').hidden = !visible;
+  try { if (visible) localStorage.removeItem(welcomePreference); else localStorage.setItem(welcomePreference, 'true'); }
+  catch { /* Guides also work when browser storage is unavailable. */ }
+}
+let welcomeDismissed = false;
+try { welcomeDismissed = localStorage.getItem(welcomePreference) === 'true'; } catch { /* Show the tip for this visit. */ }
+$('welcome-tip').hidden = welcomeDismissed;
+$('dismiss-welcome').addEventListener('click', () => { setWelcomeVisible(false); $('name').focus({preventScroll: true}); });
+$('show-welcome').addEventListener('click', () => { setWelcomeVisible(true); showView('build'); $('welcome-title').scrollIntoView({block: 'center'}); $('welcome-tip').querySelector('button').focus({preventScroll: true}); });
+$('load-practice').addEventListener('click', () => {
+  const example = examples.find(e => e.id === 'smoke');
+  if (!example) { notice('The starter configurations are still loading. Reload if the workspace is unavailable.', true); return; }
+  const c = JSON.parse(JSON.stringify(example.config));
+  Object.assign(c, {name: 'My first test', method: 'GET', mode: 'rate', rate: 5, duration: '2s', max_in_flight: 2, timeout: '1s', insecure: false});
+  c.thresholds = {p95: '200ms', max_error_percent: 0, max_drop_percent: 0, min_started_rps: null};
+  setEditor(c);
+  showView('build');
+  notice('Practice settings loaded. Start the demo server, then Validate and Start run when you are ready. Loading the guide sends no traffic.');
+  $('url').focus({preventScroll: true});
+});
+
 async function initialize() {
   try {
     examples = await (await api('/api/examples')).json();
     $('starter').append(...examples.map(e => { const option = node('option', e.name); option.value = e.id; return option; }));
+    coverage = await (await api('/coverage.json')).json(); renderCoverage();
     setEditor(examples[0].config);
+    $('load-practice').disabled = false;
     await refresh();
     if (activeID) { showView('live'); schedulePoll(); }
   } catch (e) { notice('Cannot load the local workspace: ' + e.message, true); }

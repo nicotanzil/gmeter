@@ -1,6 +1,8 @@
 # Target-server telemetry
 
-Version `0.6.0-dev` can scrape selected scalar series from a server's Prometheus
+[Documentation](README.md) · [Project overview](../README.md)
+
+gmeter can scrape selected scalar series from a server's Prometheus
 text exporter while a test runs. This is opt-in and separate from generator
 diagnostics. The CLI, dashboard, and distributed coordinator use the same
 collector. A Prometheus server is not required.

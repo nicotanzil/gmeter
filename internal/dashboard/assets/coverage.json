@@ -1,0 +1,686 @@
+{
+  "baseline": "Apache JMeter 5.6.3 (bundled capability families)",
+  "audited_at": "2026-10-08",
+  "features": [
+    {
+      "id": "http",
+      "name": "HTTP methods, headers, raw bodies",
+      "group": "Requests",
+      "status": "available",
+      "detail": "Single requests and sequential steps share validated methods, headers, raw bodies, status codes, and timeouts.",
+      "stage": "Shipped",
+      "source": "https://jmeter.apache.org/usermanual/build-web-test-plan.html",
+      "evidence": "internal/config/config.go; internal/engine/engine.go"
+    },
+    {
+      "id": "https",
+      "name": "HTTPS certificate handling",
+      "group": "Requests",
+      "status": "partial",
+      "detail": "Verified by default; explicit insecure option works locally and on workers. Custom workload CAs, client certificates, and TLS tuning are absent.",
+      "stage": "1 \u00b7 HTTP",
+      "source": "https://jmeter.apache.org/",
+      "evidence": "internal/engine/engine.go; internal/engine/tls_test.go"
+    },
+    {
+      "id": "rest-soap",
+      "name": "REST and SOAP payloads",
+      "group": "Requests",
+      "status": "partial",
+      "detail": "Raw HTTP can send JSON or XML. There are no schema, WSDL, or service-specific helpers.",
+      "stage": "1 \u00b7 HTTP",
+      "source": "https://jmeter.apache.org/",
+      "evidence": "internal/config/config.go"
+    },
+    {
+      "id": "redirects",
+      "name": "Redirect handling",
+      "group": "Requests",
+      "status": "missing",
+      "detail": "Responses are returned without following redirects. Scoped redirect chains and per-hop metrics need implementation.",
+      "stage": "1 \u00b7 HTTP",
+      "source": "https://jmeter.apache.org/usermanual/build-web-test-plan.html",
+      "evidence": "internal/engine/engine.go"
+    },
+    {
+      "id": "uploads",
+      "name": "Multipart and file uploads",
+      "group": "Requests",
+      "status": "missing",
+      "detail": "Only inline string bodies are supported; file streaming and multipart construction are absent.",
+      "stage": "1 \u00b7 HTTP",
+      "source": "https://jmeter.apache.org/",
+      "evidence": "internal/config/config.go"
+    },
+    {
+      "id": "auth",
+      "name": "HTTP authentication managers",
+      "group": "Requests",
+      "status": "partial",
+      "detail": "Bearer and API-key headers and login journeys work. Basic helpers, Digest, NTLM, Kerberos, and managed credentials are absent.",
+      "stage": "1 \u00b7 HTTP",
+      "source": "https://jmeter.apache.org/usermanual/build-web-test-plan.html",
+      "evidence": "docs/scenarios.md"
+    },
+    {
+      "id": "sessions",
+      "name": "Cookies and session lifecycle",
+      "group": "Requests",
+      "status": "partial",
+      "detail": "Bounded per-user journey jars persist across users-mode iterations; rate journeys get fresh jars. No configurable cookie policies or single-request session jar.",
+      "stage": "1 \u00b7 HTTP",
+      "source": "https://jmeter.apache.org/usermanual/build-web-test-plan.html",
+      "evidence": "internal/engine/journey.go"
+    },
+    {
+      "id": "cache-dns",
+      "name": "Cache and DNS policies",
+      "group": "Requests",
+      "status": "missing",
+      "detail": "Go transport DNS and connection reuse apply. Browser cache simulation, host overrides, and selectable DNS policies are absent.",
+      "stage": "1 \u00b7 HTTP",
+      "source": "https://jmeter.apache.org/usermanual/build-web-test-plan.html",
+      "evidence": "internal/engine/engine.go"
+    },
+    {
+      "id": "proxy",
+      "name": "Proxy and connection controls",
+      "group": "Requests",
+      "status": "partial",
+      "detail": "Environment proxies and pooled HTTP/1.1 or HTTP/2 work. Per-test proxy, source address, embedded resources, and bandwidth controls are absent.",
+      "stage": "1 \u00b7 HTTP",
+      "source": "https://jmeter.apache.org/usermanual/build-web-test-plan.html",
+      "evidence": "internal/engine/engine.go"
+    },
+    {
+      "id": "ftp",
+      "name": "FTP",
+      "group": "Protocols",
+      "status": "missing",
+      "detail": "No file-transfer sampler or connection configuration.",
+      "stage": "3 \u00b7 Adapters",
+      "source": "https://jmeter.apache.org/",
+      "evidence": "internal/config/config.go (HTTP-only model)"
+    },
+    {
+      "id": "jdbc",
+      "name": "JDBC and SQL databases",
+      "group": "Protocols",
+      "status": "missing",
+      "detail": "No query sampler, transaction isolation, parameter binding, or connection pool. JVM bridge required for arbitrary JDBC drivers.",
+      "stage": "3 \u00b7 Adapters",
+      "source": "https://jmeter.apache.org/usermanual/build-db-test-plan.html",
+      "evidence": "internal/config/config.go (HTTP-only model)"
+    },
+    {
+      "id": "ldap",
+      "name": "LDAP and extended directory operations",
+      "group": "Protocols",
+      "status": "missing",
+      "detail": "No directory bind, search, compare, add, modify, delete, or session adapter.",
+      "stage": "3 \u00b7 Adapters",
+      "source": "https://jmeter.apache.org/",
+      "evidence": "internal/config/config.go (HTTP-only model)"
+    },
+    {
+      "id": "jms",
+      "name": "JMS publish, subscribe, and request/reply",
+      "group": "Protocols",
+      "status": "missing",
+      "detail": "No JMS provider or JNDI integration. A JVM bridge is needed for provider compatibility.",
+      "stage": "3 \u00b7 Adapters",
+      "source": "https://jmeter.apache.org/usermanual/build-jms-point-to-point-test-plan.html",
+      "evidence": "internal/config/config.go (HTTP-only model)"
+    },
+    {
+      "id": "mail",
+      "name": "SMTP, POP3, IMAP and secure variants",
+      "group": "Protocols",
+      "status": "missing",
+      "detail": "No mail send/read or attachment verification.",
+      "stage": "3 \u00b7 Adapters",
+      "source": "https://jmeter.apache.org/",
+      "evidence": "internal/config/config.go (HTTP-only model)"
+    },
+    {
+      "id": "tcp",
+      "name": "TCP and pluggable framing",
+      "group": "Protocols",
+      "status": "missing",
+      "detail": "No raw socket sampler, framing codec, or connection-lifecycle controls.",
+      "stage": "3 \u00b7 Adapters",
+      "source": "https://jmeter.apache.org/",
+      "evidence": "internal/config/config.go (HTTP-only model)"
+    },
+    {
+      "id": "java",
+      "name": "Java objects and JUnit",
+      "group": "Protocols",
+      "status": "missing",
+      "detail": "No Java execution adapter or JUnit runtime. Native Go extensions alone would not provide Java compatibility.",
+      "stage": "3 \u00b7 Adapters",
+      "source": "https://jmeter.apache.org/",
+      "evidence": "internal/config/config.go (HTTP-only model)"
+    },
+    {
+      "id": "os",
+      "name": "OS process execution",
+      "group": "Protocols",
+      "status": "missing",
+      "detail": "No process sampler, exit-status assertion, or bounded stdout/stderr collection.",
+      "stage": "3 \u00b7 Adapters",
+      "source": "https://jmeter.apache.org/",
+      "evidence": "internal/config/config.go (HTTP-only model)"
+    },
+    {
+      "id": "bolt",
+      "name": "Bolt database protocol",
+      "group": "Protocols",
+      "status": "missing",
+      "detail": "No Bolt adapter or connection configuration.",
+      "stage": "3 \u00b7 Adapters",
+      "source": "https://jmeter.apache.org/usermanual/component_reference.html",
+      "evidence": "internal/config/config.go (HTTP-only model)"
+    },
+    {
+      "id": "deprecated-mongo",
+      "name": "Deprecated MongoDB components",
+      "group": "Protocols",
+      "status": "missing",
+      "detail": "No legacy MongoDB scripting/source components. Decide legacy bridge support before claiming strict historical coverage.",
+      "stage": "4 \u00b7 Compatibility",
+      "source": "https://jmeter.apache.org/usermanual/component_reference.html",
+      "evidence": "No implementation"
+    },
+    {
+      "id": "users",
+      "name": "Concurrent users and thread lifecycle",
+      "group": "Scheduling",
+      "status": "partial",
+      "detail": "Fixed users repeat until a duration expires; no user ramp, loop count, delayed start, independent thread groups, or configurable stop-on-error policy.",
+      "stage": "2 \u00b7 Controls",
+      "source": "https://jmeter.apache.org/usermanual/build-web-test-plan.html",
+      "evidence": "internal/engine/engine.go"
+    },
+    {
+      "id": "open",
+      "name": "Open workload model",
+      "group": "Scheduling",
+      "status": "partial",
+      "detail": "Constant or seeded stratified jitter arrivals with explicit drops and a concurrency cap. JMeter open-model expressions and Poisson arrivals are absent.",
+      "stage": "2 \u00b7 Controls",
+      "source": "https://jmeter.apache.org/usermanual/component_reference.html",
+      "evidence": "internal/engine/engine.go"
+    },
+    {
+      "id": "phases",
+      "name": "Traffic phases and recovery tests",
+      "group": "Scheduling",
+      "status": "available",
+      "detail": "Sequential constant-rate phases, including zero-rate admission pauses; graphical phase editor.",
+      "stage": "Shipped",
+      "source": "https://jmeter.apache.org/usermanual/build-test-plan.html",
+      "evidence": "internal/config/config.go; internal/dashboard/assets/app.js"
+    },
+    {
+      "id": "timers",
+      "name": "Delay and throughput timers",
+      "group": "Scheduling",
+      "status": "partial",
+      "detail": "Fixed think time, per-step pauses, and arrival pacing. No Gaussian, uniform, Poisson, exact-throughput, or scriptable per-scope timer equivalents.",
+      "stage": "2 \u00b7 Controls",
+      "source": "https://jmeter.apache.org/usermanual/component_reference.html",
+      "evidence": "docs/scenarios.md"
+    },
+    {
+      "id": "barriers",
+      "name": "Synchronization and critical sections",
+      "group": "Scheduling",
+      "status": "missing",
+      "detail": "No rendezvous barriers or named cross-user critical sections.",
+      "stage": "2 \u00b7 Controls",
+      "source": "https://jmeter.apache.org/usermanual/component_reference.html",
+      "evidence": "No implementation"
+    },
+    {
+      "id": "setup",
+      "name": "Setup, teardown and reusable fragments",
+      "group": "Control flow",
+      "status": "missing",
+      "detail": "No setup/teardown groups, modules, includes, or reusable test fragments.",
+      "stage": "2 \u00b7 Controls",
+      "source": "https://jmeter.apache.org/usermanual/build-test-plan.html",
+      "evidence": "internal/config/scenario.go"
+    },
+    {
+      "id": "sequence",
+      "name": "Sequential and weighted flows",
+      "group": "Control flow",
+      "status": "partial",
+      "detail": "Ordered fail-fast steps and deterministic weighted scenario selection. No nested transaction controllers or arbitrary step containers.",
+      "stage": "2 \u00b7 Controls",
+      "source": "https://jmeter.apache.org/usermanual/build-test-plan.html",
+      "evidence": "docs/scenarios.md"
+    },
+    {
+      "id": "loops",
+      "name": "Loops, once-only and foreach",
+      "group": "Control flow",
+      "status": "missing",
+      "detail": "No finite loops, once-per-user blocks, collection iteration, or nested iteration scopes.",
+      "stage": "2 \u00b7 Controls",
+      "source": "https://jmeter.apache.org/usermanual/component_reference.html",
+      "evidence": "internal/config/scenario.go"
+    },
+    {
+      "id": "branches",
+      "name": "If, while and switch",
+      "group": "Control flow",
+      "status": "missing",
+      "detail": "No conditional branches or expression evaluation.",
+      "stage": "2 \u00b7 Controls",
+      "source": "https://jmeter.apache.org/usermanual/component_reference.html",
+      "evidence": "internal/config/scenario.go"
+    },
+    {
+      "id": "selection",
+      "name": "Interleave, random and throughput controllers",
+      "group": "Control flow",
+      "status": "partial",
+      "detail": "Weighted scenarios cover a limited selection use case; no random order, interleave, runtime, or percentage/execution-count controllers.",
+      "stage": "2 \u00b7 Controls",
+      "source": "https://jmeter.apache.org/usermanual/component_reference.html",
+      "evidence": "internal/engine/engine.go"
+    },
+    {
+      "id": "flow-action",
+      "name": "Flow actions and failure policies",
+      "group": "Control flow",
+      "status": "partial",
+      "detail": "Failed steps skip the rest; stopping a run cancels work. No programmable break, continue, restart-user, stop-thread, or graceful test actions.",
+      "stage": "2 \u00b7 Controls",
+      "source": "https://jmeter.apache.org/usermanual/component_reference.html",
+      "evidence": "internal/engine/journey.go"
+    },
+    {
+      "id": "variables",
+      "name": "Variables, counters and functions",
+      "group": "Data",
+      "status": "partial",
+      "detail": "Scoped string variables, reserved user/iteration/journey IDs, and encoding filters. No general function library, mutable counters, shared properties, or expression engine.",
+      "stage": "1 \u00b7 HTTP",
+      "source": "https://jmeter.apache.org/usermanual/functions.html",
+      "evidence": "internal/correlation/correlation.go; docs/scenarios.md"
+    },
+    {
+      "id": "data",
+      "name": "CSV datasets and external files",
+      "group": "Data",
+      "status": "partial",
+      "detail": "Inline string rows cycle by scheduled ordinal. No file-backed CSV, file cursors, sharing modes, EOF behavior, or file functions.",
+      "stage": "1 \u00b7 HTTP",
+      "source": "https://jmeter.apache.org/usermanual/functions.html",
+      "evidence": "internal/config/scenario.go"
+    },
+    {
+      "id": "random",
+      "name": "Random data, time, UUID and transforms",
+      "group": "Data",
+      "status": "missing",
+      "detail": "No general random-data, date arithmetic, UUID, digest, encoding, or mathematical function library. Arrival jitter is independent.",
+      "stage": "1 \u00b7 HTTP",
+      "source": "https://jmeter.apache.org/usermanual/functions.html",
+      "evidence": "internal/correlation/correlation.go"
+    },
+    {
+      "id": "json",
+      "name": "JSON extraction and querying",
+      "group": "Correlation",
+      "status": "partial",
+      "detail": "RFC 6901 scalar pointers work. JSONPath and JMESPath selectors, multiple matches, and defaults are absent.",
+      "stage": "1 \u00b7 HTTP",
+      "source": "https://jmeter.apache.org/usermanual/component_reference.html",
+      "evidence": "internal/correlation/correlation.go"
+    },
+    {
+      "id": "text-extract",
+      "name": "Regex and boundary extraction",
+      "group": "Correlation",
+      "status": "missing",
+      "detail": "No regex captures, boundary matching, or match-selection rules.",
+      "stage": "1 \u00b7 HTTP",
+      "source": "https://jmeter.apache.org/usermanual/component_reference.html",
+      "evidence": "internal/config/scenario.go"
+    },
+    {
+      "id": "html-xml",
+      "name": "CSS and XPath extraction",
+      "group": "Correlation",
+      "status": "missing",
+      "detail": "No HTML selector, XML namespace, or XPath engine.",
+      "stage": "1 \u00b7 HTTP",
+      "source": "https://jmeter.apache.org/usermanual/component_reference.html",
+      "evidence": "internal/config/scenario.go"
+    },
+    {
+      "id": "headers-extract",
+      "name": "Response header extraction",
+      "group": "Correlation",
+      "status": "available",
+      "detail": "Extract a present first header value into a journey variable for later steps.",
+      "stage": "Shipped",
+      "source": "https://jmeter.apache.org/usermanual/build-web-test-plan.html",
+      "evidence": "internal/engine/journey.go"
+    },
+    {
+      "id": "processors",
+      "name": "Preprocessors and postprocessors",
+      "group": "Correlation",
+      "status": "partial",
+      "detail": "Templates and extraction are fixed built-in operations. No configurable processor chain, URL rewriting, link parsing, JDBC processors, or status handlers.",
+      "stage": "2 \u00b7 Controls",
+      "source": "https://jmeter.apache.org/usermanual/component_reference.html",
+      "evidence": "internal/engine/journey.go"
+    },
+    {
+      "id": "assert-response",
+      "name": "Response assertions",
+      "group": "Assertions",
+      "status": "partial",
+      "detail": "Status lists, scalar JSON/header equality, and literal body substrings. No regex, negative match, boolean composition, or assertion scopes.",
+      "stage": "1 \u00b7 HTTP",
+      "source": "https://jmeter.apache.org/usermanual/component_reference.html",
+      "evidence": "internal/engine/journey.go"
+    },
+    {
+      "id": "assert-schema",
+      "name": "XML, HTML and JSON validation",
+      "group": "Assertions",
+      "status": "missing",
+      "detail": "No XML/HTML parser validation, XPath predicates, XML schema, JSONPath, or JMESPath assertions.",
+      "stage": "1 \u00b7 HTTP",
+      "source": "https://jmeter.apache.org/usermanual/component_reference.html",
+      "evidence": "internal/config/scenario.go"
+    },
+    {
+      "id": "assert-size-time",
+      "name": "Duration and size assertions",
+      "group": "Assertions",
+      "status": "partial",
+      "detail": "Per-request/journey timeouts, body-size ceiling, and aggregate p95 checks. No independent per-sample duration/size assertion ranges.",
+      "stage": "1 \u00b7 HTTP",
+      "source": "https://jmeter.apache.org/usermanual/component_reference.html",
+      "evidence": "internal/config/config.go"
+    },
+    {
+      "id": "assert-special",
+      "name": "Checksums, comparisons and S/MIME",
+      "group": "Assertions",
+      "status": "missing",
+      "detail": "No MD5, response comparison, S/MIME, or scripted assertions.",
+      "stage": "4 \u00b7 Extensions",
+      "source": "https://jmeter.apache.org/usermanual/component_reference.html",
+      "evidence": "internal/config/scenario.go"
+    },
+    {
+      "id": "thresholds",
+      "name": "Acceptance checks and CI exit status",
+      "group": "Analysis",
+      "status": "available",
+      "detail": "Request, whole-journey, and scenario thresholds affect pass/fail; CLI uses documented exit codes. No statistical regression claim.",
+      "stage": "Shipped",
+      "source": "https://jmeter.apache.org/usermanual/best-practices.html",
+      "evidence": "internal/cli/cli.go; internal/engine/journey.go"
+    },
+    {
+      "id": "metrics",
+      "name": "Aggregates and percentiles",
+      "group": "Analysis",
+      "status": "partial",
+      "detail": "Bounded merged histograms, per-phase/scenario/step counters, error categories, and latency distributions. No per-sample JTL population or configurable histogram precision.",
+      "stage": "4 \u00b7 Compatibility",
+      "source": "https://jmeter.apache.org/usermanual/generating-dashboard.html",
+      "evidence": "internal/metrics; internal/engine"
+    },
+    {
+      "id": "reports",
+      "name": "Portable HTML and result exports",
+      "group": "Analysis",
+      "status": "partial",
+      "detail": "Standalone HTML, aggregate JSON, and saved timeline bundles. No full JMeter chart set, APDEX, CSV/JTL exchange, or offline raw-sample reanalysis.",
+      "stage": "4 \u00b7 Compatibility",
+      "source": "https://jmeter.apache.org/usermanual/generating-dashboard.html",
+      "evidence": "internal/report; internal/dashboard"
+    },
+    {
+      "id": "debug",
+      "name": "Request/response debugging and listeners",
+      "group": "Analysis",
+      "status": "missing",
+      "detail": "No View Results Tree equivalent, bounded response samples, assertion tree, debug sampler, or processor inspection. Reports intentionally omit bodies and headers.",
+      "stage": "2 \u00b7 Controls",
+      "source": "https://jmeter.apache.org/usermanual/best-practices.html",
+      "evidence": "internal/engine/engine.go; internal/report"
+    },
+    {
+      "id": "backend",
+      "name": "Streaming backend listeners",
+      "group": "Analysis",
+      "status": "missing",
+      "detail": "No external result sink, Graphite/InfluxDB listener, or export plugin API. Prometheus target scraping is a separate feature.",
+      "stage": "4 \u00b7 Extensions",
+      "source": "https://jmeter.apache.org/usermanual/realtime-results.html",
+      "evidence": "internal/telemetry"
+    },
+    {
+      "id": "offline",
+      "name": "Offline files and saved response output",
+      "group": "Analysis",
+      "status": "partial",
+      "detail": "Saved aggregate runs can be imported and compared. No raw response files, CSV/XML result writers, or external JTL import.",
+      "stage": "4 \u00b7 Compatibility",
+      "source": "https://jmeter.apache.org/usermanual/generating-dashboard.html",
+      "evidence": "internal/dashboard/server.go"
+    },
+    {
+      "id": "notifications",
+      "name": "Mail and custom event listeners",
+      "group": "Analysis",
+      "status": "missing",
+      "detail": "No mail notifications or user-defined sample listeners.",
+      "stage": "4 \u00b7 Extensions",
+      "source": "https://jmeter.apache.org/usermanual/component_reference.html",
+      "evidence": "No implementation"
+    },
+    {
+      "id": "gui",
+      "name": "Visual test creation and editing",
+      "group": "Authoring",
+      "status": "partial",
+      "detail": "Request, header, body, phase, and threshold controls. Journeys, data, extraction, and assertions still require JSON. No scoped tree editor.",
+      "stage": "1 \u00b7 HTTP",
+      "source": "https://jmeter.apache.org/usermanual/build-test-plan.html",
+      "evidence": "internal/dashboard/assets"
+    },
+    {
+      "id": "recorder",
+      "name": "HTTP(S) recording",
+      "group": "Authoring",
+      "status": "missing",
+      "detail": "No recording proxy, capture filters, request grouping, certificate authority lifecycle, or recording controller.",
+      "stage": "1 \u00b7 HTTP",
+      "source": "https://jmeter.apache.org/usermanual/jmeter_proxy_step_by_step.html",
+      "evidence": "No implementation"
+    },
+    {
+      "id": "access-log",
+      "name": "Access-log replay",
+      "group": "Authoring",
+      "status": "missing",
+      "detail": "No access-log parser, replay sampler, or replay filters.",
+      "stage": "3 \u00b7 Adapters",
+      "source": "https://jmeter.apache.org/",
+      "evidence": "No implementation"
+    },
+    {
+      "id": "utilities",
+      "name": "Mirror server and property/debug inspectors",
+      "group": "Authoring",
+      "status": "missing",
+      "detail": "No mirror server, property display, debug sampler, or debug postprocessor.",
+      "stage": "3 \u00b7 Adapters",
+      "source": "https://jmeter.apache.org/usermanual/component_reference.html",
+      "evidence": "No implementation"
+    },
+    {
+      "id": "scope-defaults",
+      "name": "Element defaults and scope inheritance",
+      "group": "Control flow",
+      "status": "partial",
+      "detail": "Top-level and per-step headers and statuses inherit through a fixed model. No arbitrary nested scopes, defaults managers, or independently reusable element configuration.",
+      "stage": "2 \u00b7 Controls",
+      "source": "https://jmeter.apache.org/usermanual/build-test-plan.html",
+      "evidence": "internal/config/scenario.go"
+    },
+    {
+      "id": "jmx",
+      "name": "JMX plans, templates and migration",
+      "group": "Authoring",
+      "status": "missing",
+      "detail": "Only gmeter JSON plans are accepted. No JMX parser, component mapping, round-trip support, or compatibility error inventory.",
+      "stage": "4 \u00b7 Compatibility",
+      "source": "https://jmeter.apache.org/usermanual/build-test-plan.html",
+      "evidence": "internal/config/config.go"
+    },
+    {
+      "id": "cli",
+      "name": "Headless execution and configuration",
+      "group": "Automation",
+      "status": "partial",
+      "detail": "CLI, strict JSON, flag overrides, validation, reports, and cancellation. No full JMeter properties/remote CLI compatibility.",
+      "stage": "4 \u00b7 Compatibility",
+      "source": "https://jmeter.apache.org/usermanual/best-practices.html",
+      "evidence": "internal/cli/cli.go"
+    },
+    {
+      "id": "distributed",
+      "name": "Distributed engines",
+      "group": "Scale",
+      "status": "partial",
+      "detail": "Authenticated rate-mode workers split a global schedule and merge histograms. No distributed users, shared files, automatic failover, or JMeter RMI interoperability.",
+      "stage": "2 \u00b7 Controls",
+      "source": "https://jmeter.apache.org/usermanual/remote-test.html",
+      "evidence": "internal/distributed; docs/workers.md"
+    },
+    {
+      "id": "scripting",
+      "name": "JSR223, BeanShell and custom code",
+      "group": "Extensions",
+      "status": "missing",
+      "detail": "No Groovy/BeanShell/JSR223 runtime or scripting hooks. A different language alone will not reproduce existing scripts.",
+      "stage": "4 \u00b7 Extensions",
+      "source": "https://jmeter.apache.org/usermanual/functions.html",
+      "evidence": "No implementation"
+    },
+    {
+      "id": "plugins",
+      "name": "Custom samplers, timers and visualizers",
+      "group": "Extensions",
+      "status": "missing",
+      "detail": "No public plugin SDK, discovery, versioning, isolation, or Java-plugin adapter. Third-party plugin parity needs a named, versioned inventory.",
+      "stage": "4 \u00b7 Extensions",
+      "source": "https://jmeter.apache.org/",
+      "evidence": "No implementation"
+    },
+    {
+      "id": "drops",
+      "name": "Explicit missed-demand accounting",
+      "group": "gmeter additions",
+      "status": "available",
+      "detail": "Capacity and scheduler misses stay in planned-demand denominators; no catch-up burst or unbounded queue.",
+      "stage": "Shipped",
+      "source": "https://jmeter.apache.org/usermanual/best-practices.html",
+      "evidence": "internal/engine/engine.go; internal/metrics"
+    },
+    {
+      "id": "fleet-schedule",
+      "name": "Fleet-wide arrival partitioning",
+      "group": "gmeter additions",
+      "status": "available",
+      "detail": "One total rate is partitioned over worker ordinals and fixed quotas rather than duplicating the full offered load per worker.",
+      "stage": "Shipped",
+      "source": "https://jmeter.apache.org/usermanual/remote-test.html",
+      "evidence": "internal/distributed; internal/engine/distributed.go"
+    },
+    {
+      "id": "target-metrics",
+      "name": "Target-server metric observation",
+      "group": "gmeter additions",
+      "status": "available",
+      "detail": "Opt-in selected Prometheus gauges/counters with coverage gaps, reset handling, and a bounded final observation independent of load checks.",
+      "stage": "Shipped",
+      "source": "https://jmeter.apache.org/usermanual/realtime-results.html",
+      "evidence": "internal/telemetry; docs/telemetry.md"
+    },
+    {
+      "id": "generator",
+      "name": "Generator and transport diagnostics",
+      "group": "gmeter additions",
+      "status": "available",
+      "detail": "Process resources plus sampled HTTP timing and connection facts; timing populations and observation limits stay visible.",
+      "stage": "Shipped",
+      "source": "https://jmeter.apache.org/usermanual/best-practices.html",
+      "evidence": "internal/diagnostics; internal/engine/httptrace.go"
+    },
+    {
+      "id": "workspace",
+      "name": "Local saved workspace and comparisons",
+      "group": "gmeter additions",
+      "status": "available",
+      "detail": "Local run/scenario library, portable bundles, live charts, and descriptive comparison that flags differing conditions.",
+      "stage": "Shipped",
+      "source": "https://jmeter.apache.org/usermanual/generating-dashboard.html",
+      "evidence": "internal/dashboard"
+    },
+    {
+      "id": "websocket",
+      "name": "WebSocket",
+      "group": "Beyond parity",
+      "status": "missing",
+      "detail": "No persistent duplex socket sessions or message assertions. Not a bundled JMeter sampler in this baseline.",
+      "stage": "5 \u00b7 Beyond parity",
+      "source": "https://jmeter.apache.org/",
+      "evidence": "No implementation"
+    },
+    {
+      "id": "grpc",
+      "name": "gRPC",
+      "group": "Beyond parity",
+      "status": "missing",
+      "detail": "No protobuf descriptors, unary/streaming RPCs, or RPC-specific metrics. Not a bundled JMeter sampler in this baseline.",
+      "stage": "5 \u00b7 Beyond parity",
+      "source": "https://jmeter.apache.org/",
+      "evidence": "No implementation"
+    },
+    {
+      "id": "otel",
+      "name": "OpenTelemetry result export",
+      "group": "Beyond parity",
+      "status": "missing",
+      "detail": "No OTLP result export or trace-context correlation.",
+      "stage": "5 \u00b7 Beyond parity",
+      "source": "https://jmeter.apache.org/usermanual/realtime-results.html",
+      "evidence": "No implementation"
+    },
+    {
+      "id": "regression",
+      "name": "Repeatable regression analysis",
+      "group": "Beyond parity",
+      "status": "missing",
+      "detail": "Comparisons are descriptive; no statistical verdict, repeated-trial model, or CI baseline management.",
+      "stage": "5 \u00b7 Beyond parity",
+      "source": "https://jmeter.apache.org/usermanual/generating-dashboard.html",
+      "evidence": "internal/dashboard/assets/app.js"
+    }
+  ]
+}

@@ -3,6 +3,7 @@ package engine
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -43,6 +44,7 @@ type Result struct {
 	Name                string               `json:"name"`
 	URL                 string               `json:"url"`
 	Method              string               `json:"method"`
+	Insecure            bool                 `json:"insecure,omitempty"`
 	Mode                string               `json:"mode"`
 	ConcurrencyLimit    int                  `json:"concurrency_limit"`
 	StartedAt           time.Time            `json:"started_at"`
@@ -134,8 +136,11 @@ func Run(ctx context.Context, c config.Config, opts Options) (Result, error) {
 	if opts.Shard != nil {
 		limit = opts.Shard.Capacity
 	}
+	// Each workload owns its transport. This explicit opt-in never changes
+	// the independent worker-control or target-telemetry TLS clients.
 	transport := &http.Transport{
 		Proxy:                  http.ProxyFromEnvironment,
+		TLSClientConfig:        &tls.Config{InsecureSkipVerify: p.Insecure},
 		DialContext:            (&net.Dialer{Timeout: p.RequestTimeout, KeepAlive: 30 * time.Second}).DialContext,
 		ForceAttemptHTTP2:      true,
 		MaxIdleConns:           limit,
@@ -253,7 +258,7 @@ func Run(ctx context.Context, c config.Config, opts Options) (Result, error) {
 	}
 	result := Result{
 		SchemaVersion: 3, Name: p.Name, URL: p.URL, Method: p.Method, Generator: generator, Assignment: opts.Shard,
-		Mode: p.Mode, ConcurrencyLimit: limit, StartedAt: start.UTC(),
+		Mode: p.Mode, Insecure: p.Insecure, ConcurrencyLimit: limit, StartedAt: start.UTC(),
 		PlannedLoadSeconds: p.LoadDuration.Seconds(), LoadSeconds: loadElapsed.Seconds(),
 		TotalSeconds: time.Since(start).Seconds(), Interrupted: ctx.Err() != nil,
 		Snapshot: r.total.Snapshot(loadElapsed), Phases: make([]PhaseResult, 0, len(p.Phases)),
@@ -586,6 +591,9 @@ func (r Result) Summary() string {
 		status = "FAIL"
 	}
 	summary := fmt.Sprintf("%s  %s\n%d completed requests · %.1f started req/s · %.2f%% request errors · %.2f%% arrivals dropped\nRequest latency: p50 %.2f ms · p95 %.2f ms · p99 %.2f ms\n", status, r.Name, r.Completed, r.StartedRPS, r.ErrorPercent, r.arrivalDropPercent(), r.Latency.P50MS, r.Latency.P95MS, r.Latency.P99MS)
+	if r.Insecure {
+		summary += "TLS verification disabled for workload HTTPS requests (insecure).\n"
+	}
 	if r.Workload == "journeys" {
 		summary += fmt.Sprintf("%d completed journeys · %.1f started journeys/s · %.2f%% journey errors · p95 %.2f ms\n", r.Journeys.Completed, r.Journeys.StartedPerSecond, r.Journeys.ErrorPercent, r.Journeys.Latency.P95MS)
 		for _, s := range r.Scenarios {
