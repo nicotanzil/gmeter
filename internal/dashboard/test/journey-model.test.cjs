@@ -57,7 +57,7 @@ test('new journeys, conversion, and removal preserve execution limits', () => {
   assert.equal(d.scenarios.length,2);
   assert.equal(model.mutate(d,{type:'remove-journey',scenario:1}).config.scenarios.length,1);
   const large={scenarios:[{steps:Array.from({length:50},(_,i)=>({name:`Step ${i}`,url:'/'}))}]};
-  assert.throws(()=>model.mutate(large,{type:'add-step'}),/50 request/);
+  assert.throws(()=>model.mutate(large,{type:'add-step'}),/50 request or control/);
   assert.throws(()=>model.mutate({scenarios:Array.from({length:10},(_,i)=>({name:`Journey ${i}`,weight:1000,steps:[{url:'/'}]}))},{type:'add-journey'}),/10000/);
   assert.throws(()=>model.mutate(c,{type:'edit-journey',patch:{weight:1001}}),/1000/);
 });
@@ -74,7 +74,38 @@ test('all edit paths enforce size, step, and weight bounds without changing the 
   const huge={url:'http://example.test',body:'x'.repeat(1048500)};
   assert.throws(()=>model.mutate(huge,{type:'create'}),/1 MiB/);
   const c={scenarios:Array.from({length:2},(_,i)=>({name:`Journey ${i}`,steps:Array.from({length:50},(_,j)=>({name:`Request ${j}`,url:'/'}))}))};
-  assert.throws(()=>model.mutate(c,{type:'duplicate-journey'}),/100 request/);
+  assert.throws(()=>model.mutate(c,{type:'duplicate-journey'}),/100 request or control/);
   assert.equal(c.scenarios.length,2);
   assert.throws(()=>model.mutate(journey(),{type:'move-step',index:0,to:-1}),/valid position/);
+});
+
+test('nested edits preserve paths, subtrees, and immutable source configuration',()=>{
+  const c=journey();let changed=model.mutate(c,{type:'add-branch',index:0}).config;
+  changed=model.mutate(changed,{type:'add-loop',index:1,container:'steps[1].if.then'}).config;
+  const all=model.flatten(changed.scenarios[0].steps),loop=all.find(n=>n.step.loop);
+  assert.equal(loop.path,'steps[1].if.then[1]');
+  assert.throws(()=>model.mutate(changed,{type:'move-container',index:loop.index,container:loop.path+'.loop.steps'}),/inside itself/);
+  const duplicate=model.mutate(changed,{type:'duplicate-step',index:1}).config;
+  assert.equal(duplicate.scenarios[0].steps[2].if.then[1].loop.count,2);
+  const names=model.flatten(duplicate.scenarios[0].steps).map(n=>n.step.name);assert.equal(new Set(names).size,names.length);
+  const moved=model.mutate(changed,{type:'move-container',index:loop.index,container:'steps'}).config;
+  assert.equal(moved.scenarios[0].steps.at(-1).loop.count,2);
+  assert.equal(changed.scenarios[0].steps[1].if.then.length,2);assert.equal(c.scenarios[0].steps.length,3);
+});
+test('dependencies require definitions on both branch paths and scope loop counters',()=>{
+  const produce=name=>({name,url:'/',extract:{token:{header:'X-Token'}}});
+  const c={scenarios:[{steps:[{if:{condition:{variable:'journey_id',value:'1'},then:[produce('A')],else:[produce('B')]}},{url:'/{{token}}'},{loop:{count:2,index_variable:'i',steps:[{url:'/{{i}}'}]}},{url:'/{{i}}'}]}]};
+  const all=model.flatten(c.scenarios[0].steps),d=model.dependencies(c,0);
+  assert.deepEqual(d.steps[3].missing,[]);assert.deepEqual(d.edges.filter(e=>e.to===3).map(e=>e.from),[1,2]);
+  assert.deepEqual(d.steps[5].missing,[]);assert.deepEqual(d.steps[6].missing,['i']);
+  c.scenarios[0].steps[0].if.else=[];assert.deepEqual(model.dependencies(c,0).steps[2].missing,['token']);
+  assert.equal(all.length,7);
+});
+test('nested layout has distinct nodes, labeled branch edges, and loop return paths',()=>{
+  const c=JSON.parse(fs.readFileSync(require('node:path').join(__dirname,'../../../examples/flow.json'),'utf8'));
+  const layout=model.layout(c.scenarios[0].steps);assert.equal(layout.nodes.length,8);
+  assert.ok(layout.edges.some(e=>e.label==='True'));assert.ok(layout.edges.some(e=>e.label==='False'));assert.ok(layout.edges.some(e=>e.label==='Repeat'));
+  for(const a of layout.nodes)for(const b of layout.nodes)if(a.index!==b.index)assert.ok(a.x+288<=b.x||b.x+288<=a.x||a.y+a.height<=b.y||b.y+b.height<=a.y,'Node cards must not overlap');
+  assert.ok(layout.nodes.every(n=>n.y+n.height<layout.endY));
+  const d=model.dependencies(c,0);assert.ok(d.steps.every(s=>s.missing.length===0));
 });

@@ -266,21 +266,21 @@
       "id": "loops",
       "name": "Loops, once-only and foreach",
       "group": "Control flow",
-      "status": "missing",
-      "detail": "No finite loops, once-per-user blocks, collection iteration, or nested iteration scopes.",
+      "status": "partial",
+      "detail": "Nested fixed-count and bounded while loops with scoped iteration variables. Once-per-user blocks, foreach collections, and independent user-group loop counts remain absent.",
       "stage": "2 \u00b7 Controls",
       "source": "https://jmeter.apache.org/usermanual/component_reference.html",
-      "evidence": "internal/config/scenario.go"
+      "evidence": "internal/config/flow.go; internal/engine/flow_test.go"
     },
     {
       "id": "branches",
       "name": "If, while and switch",
       "group": "Control flow",
-      "status": "missing",
-      "detail": "No conditional branches or expression evaluation.",
+      "status": "partial",
+      "detail": "Nested if/else and bounded while conditions use explicit string, numeric, and existence comparisons. Switch, compound expressions, and scripting remain absent.",
       "stage": "2 \u00b7 Controls",
       "source": "https://jmeter.apache.org/usermanual/component_reference.html",
-      "evidence": "internal/config/scenario.go"
+      "evidence": "internal/config/flow.go; internal/engine/flow_test.go"
     },
     {
       "id": "selection",
@@ -497,7 +497,7 @@
       "name": "Visual test creation and editing",
       "group": "Authoring",
       "status": "partial",
-      "detail": "Request, header, body, phase, and threshold controls plus a sequential journey canvas for requests, pauses, data, variables, extraction, and assertions. No scoped component tree or executable branches/loops.",
+      "detail": "Request, header, body, phase, and threshold controls plus a journey canvas with nested branches, loops, scoped variables, dependencies, and observed control counts. No general component tree or recording.",
       "stage": "1 \u00b7 HTTP",
       "source": "https://jmeter.apache.org/usermanual/build-test-plan.html",
       "evidence": "internal/dashboard/assets"

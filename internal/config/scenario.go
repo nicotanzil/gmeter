@@ -32,7 +32,9 @@ type Assertion struct {
 
 type Step struct {
 	Name            string                `json:"name"`
-	URL             string                `json:"url"`
+	URL             string                `json:"url,omitempty"`
+	If              *Branch               `json:"if,omitempty"`
+	Loop            *Loop                 `json:"loop,omitempty"`
 	Method          string                `json:"method,omitempty"`
 	Headers         map[string]string     `json:"headers,omitempty"`
 	Body            string                `json:"body,omitempty"`
@@ -64,6 +66,7 @@ type CompiledAssertion struct {
 }
 type StepPlan struct {
 	Step
+	Path                      string
 	URLTemplate, BodyTemplate correlation.Template
 	HeaderTemplates           map[string]correlation.Template
 	Extractions               []CompiledExtraction
@@ -83,6 +86,8 @@ type ScenarioPlan struct {
 	Variables   map[string]string
 	Data        []map[string]string
 	Steps       []StepPlan
+	Flow        []FlowNode
+	Controls    []ControlPlan
 	Checks      CompiledJourneyThresholds
 }
 
@@ -137,13 +142,6 @@ func (p *Plan) compileScenarios() error {
 		if weight < 1 || weight > 1000 {
 			return fmt.Errorf("scenario %q: weight must be between 1 and 1000", s.Name)
 		}
-		if len(s.Steps) < 1 || len(s.Steps) > 50 {
-			return fmt.Errorf("scenario %q must have between 1 and 50 steps", s.Name)
-		}
-		totalSteps += len(s.Steps)
-		if totalSteps > 100 {
-			return fmt.Errorf("at most 100 total steps are supported")
-		}
 		if len(s.Data) > 10000 {
 			return fmt.Errorf("scenario %q: at most 10000 data rows are supported", s.Name)
 		}
@@ -181,17 +179,21 @@ func (p *Plan) compileScenarios() error {
 				}
 			}
 		}
-		stepNames := map[string]bool{}
-		for j, step := range s.Steps {
-			compiled, err := p.compileStep(step, j, known, base)
-			if err != nil {
-				return fmt.Errorf("scenarios[%d].steps[%d]: %w", i, j, err)
-			}
-			if stepNames[compiled.Name] {
-				return fmt.Errorf("scenario %q: duplicate step name %q", s.Name, compiled.Name)
-			}
-			stepNames[compiled.Name] = true
-			sp.Steps = append(sp.Steps, compiled)
+		compiler := flowCompiler{plan: p, scenario: &sp, base: base, names: map[string]bool{}}
+		var cost int
+		sp.Flow, _, cost, err = compiler.sequence(s.Steps, known, fmt.Sprintf("scenarios[%d].steps", i), 0)
+		if err != nil {
+			return err
+		}
+		if compiler.nodes < 1 || len(sp.Steps) == 0 {
+			return fmt.Errorf("scenario %q needs at least one HTTP request", s.Name)
+		}
+		if cost > MaxFlowExecutions {
+			return fmt.Errorf("scenario %q exceeds %d possible node executions per journey", s.Name, MaxFlowExecutions)
+		}
+		totalSteps += compiler.nodes
+		if totalSteps > 100 {
+			return fmt.Errorf("at most 100 total flow nodes are supported")
 		}
 		p.TotalWeight += int64(weight)
 		if p.TotalWeight > 10000 {

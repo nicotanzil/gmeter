@@ -158,9 +158,10 @@ CPU percentage or heap peak. Request/phase in-flight high-water marks sum worker
 peaks as an upper bound, since those peaks can occur at different times. HTTP
 populations keep the rules in [diagnostics.md](diagnostics.md).
 
-Distributed reports use **schema 4**, with `distribution` and worker summaries,
-or **schema 5** when target-server telemetry is configured. Local reports use
-schema 3 or schema 5 with telemetry. The dashboard imports schemas 2–5 and
+Sequential distributed reports use **schema 4**, with `distribution` and worker
+summaries, or **schema 5** with target-server telemetry. Branch/loop flows use
+**schema 6** in either case. Sequential local reports use schema 3 or schema 5
+with telemetry. The dashboard imports schemas 2–6 and
 preserves worker lists/results across restart and export. Timeline points retain
 compact worker counters within the 900-point limit. Control responses are capped
 at 32 MiB; bundles retain the 16 MiB limit. Raw histogram transfer states are
@@ -176,3 +177,8 @@ This first version does not implement distributed users mode, worker discovery,
 heterogeneous quotas, dynamic balancing, durable worker recovery, per-worker
 resource timeline charts, or precise clock synchronization. Independent scaling
 and measurement benchmarks remain ahead.
+
+Journeys with branches or loops use result schema 6, including worker and
+telemetry results. Existing sequential configurations retain their earlier schemas.
+Use current binaries on all workers; older workers reject new flow fields.
+See [branches and loops](scenarios.md#branches-and-loops).

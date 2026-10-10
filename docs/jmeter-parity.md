@@ -26,11 +26,11 @@ better throughput, accuracy, resource use, or target health.
 
 | Area | gmeter today | Work needed for JMeter coverage |
 | --- | --- | --- |
-| HTTP testing | Requests, sequential journeys, cookies, raw payloads, variable templates, header/scalar JSON extraction, basic assertions; verified or explicitly insecure HTTPS | Redirect chains, richer authentication, uploads, connection policies, additional selectors and assertions, client certificates |
-| Workloads | Fixed users, constant/jittered arrivals, rate phases, weighted journeys, bounded admission and explicit drops | User ramps and groups, finite loops, conditional control flow, synchronization, setup/teardown, additional timer distributions |
+| HTTP testing | Requests, journeys with nested branches and bounded loops, cookies, raw payloads, variable templates, header/scalar JSON extraction, basic assertions; verified or explicitly insecure HTTPS | Redirect chains, richer authentication, uploads, connection policies, additional selectors and assertions, client certificates |
+| Workloads | Fixed users, constant/jittered arrivals, rate phases, weighted journeys, fixed-count/while loops, if/else, bounded admission and explicit drops | User ramps and groups, foreach/once-only/switch, compound conditions, synchronization, setup/teardown, additional timer distributions |
 | Data and customization | Inline rows and scoped strings | File datasets, function library, processor hooks, scripting and extension APIs |
 | Other protocols | HTTP(S) | Database, directory, messaging, TCP, transfer, mail, process and Java adapters; Bolt; legacy support decisions |
-| Authoring and compatibility | Local web app, sequential journey canvas, JSON plans, saved runs and portable bundles | Recording, component tree/scoping, JMX migration and external result exchange |
+| Authoring and compatibility | Local web app, journey canvas with nested branches and loops, JSON plans, saved runs and portable bundles | Recording, component tree/scoping, JMX migration and external result exchange |
 | Analysis | Bounded histograms, phase/scenario/step metrics, portable reports, comparisons, generator diagnostics and target metric observation | Debug samples, configurable result sinks, more charts, offline sample analysis, notification listeners |
 | Distributed execution | A global rate partitioned across authenticated workers | Distributed users, file deployment, recovery, and compatibility with existing distributed plans |
 
@@ -65,8 +65,9 @@ with explicit certificate and capture lifecycle; no implicit machine trust chang
 
 ### 2. Add execution semantics and debugging
 
-- [ ] Typed flow nodes: sequence, finite/conditional loop, branches, foreach,
-  once-only, switch, interleave/random selection, transaction and runtime limits.
+- [x] Typed HTTP sequences, nested if/else, fixed-count and bounded while loops,
+  scoped counters, canvas editing, and request/control reporting.
+- [ ] Foreach, once-only, switch, interleave/random selection, transaction and runtime limits.
 - [ ] Scope/inheritance rules, shared fragments, setup/teardown and failure actions.
 - [ ] User ramps, group lifecycle, additional timers, barriers and critical sections.
 - [ ] Distributed users and data deployment; worker failure/recovery contracts.

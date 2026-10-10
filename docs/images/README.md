@@ -41,3 +41,17 @@ user-guide work; the screenshots do not represent an older tagged release.
 Keep assets in this directory so GitHub and offline checkouts resolve them.
 Update all three together when navigation or visual structure changes. Use
 fresh local data and describe any failed/incomplete state accurately.
+
+## Branch and loop canvas (10 October 2026)
+
+[journey-flow.png](journey-flow.png) is a real 1302 × 967 canvas capture at a
+1600 × 1200 browser viewport. It shows the validated **Branches and loops**
+starter, a selected fixed-count loop, nested True/False paths, and scoped counter
+controls. Fit shows the complete flow; selecting a node zooms in for inspection.
+The integration suite uses a disposable dashboard and a counted local target;
+editing, validation, and structure previews sent zero workload requests.
+
+Reproduce with `make build` followed by `make test-browser` in an environment
+with Playwright and Chromium available. Set `GMETER_FLOW_SCREENSHOT` to the
+output PNG path; optional `PLAYWRIGHT_MODULE` and `CHROME_PATH` select externally
+installed tools. This capture represents authoring, with no invented run results.

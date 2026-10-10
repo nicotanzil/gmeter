@@ -303,7 +303,7 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.Method == "GET" && path == "/api/examples" {
 		list := []SavedScenario{}
-		for _, name := range []string{"smoke", "stress", "post", "journey", "mix", "distributed", "telemetry"} {
+		for _, name := range []string{"smoke", "stress", "post", "journey", "flow", "mix", "distributed", "telemetry"} {
 			data, _ := examples.Files.ReadFile(name + ".json")
 			c, err := config.Load(bytes.NewReader(data))
 			if err != nil {
@@ -484,16 +484,20 @@ func (s *Server) importRun(w http.ResponseWriter, r *http.Request) {
 	if p.IsJourney() {
 		workload = "journeys"
 	}
-	if result == nil || (result.SchemaVersion < 2 || result.SchemaVersion > 5) || result.Workload != workload || result.URL != run.Config.URL || result.Mode != run.Config.Mode || result.Insecure != run.Config.Insecure || result.StartedAt.IsZero() || result.PlannedLoadSeconds != p.LoadDuration.Seconds() || result.LoadSeconds < 0 || result.LoadSeconds > result.PlannedLoadSeconds || result.TotalSeconds < result.LoadSeconds {
-		fail(w, 400, "Import a completed schema 2–5 run bundle exported with Run + timeline. Configuration and results must match.")
+	if result == nil || (result.SchemaVersion < 2 || result.SchemaVersion > 6) || result.Workload != workload || result.URL != run.Config.URL || result.Mode != run.Config.Mode || result.Insecure != run.Config.Insecure || result.StartedAt.IsZero() || result.PlannedLoadSeconds != p.LoadDuration.Seconds() || result.LoadSeconds < 0 || result.LoadSeconds > result.PlannedLoadSeconds || result.TotalSeconds < result.LoadSeconds {
+		fail(w, 400, "Import a completed schema 2–6 run bundle exported with Run + timeline. Configuration and results must match.")
 		return
 	}
-	if len(run.Config.Workers) > 0 && ((result.SchemaVersion != 4 && result.SchemaVersion != 5) || result.Distribution == nil || len(result.Distribution.Workers) != len(run.Config.Workers)) {
+	if len(run.Config.Workers) > 0 && ((result.SchemaVersion != 4 && result.SchemaVersion != 5 && result.SchemaVersion != 6) || result.Distribution == nil || len(result.Distribution.Workers) != len(run.Config.Workers)) {
 		fail(w, 400, "Distributed run bundle is missing worker results.")
 		return
 	}
-	if err := telemetry.ValidateSummary(run.Config.Telemetry, result.Telemetry, result.StartedAt, result.TotalSeconds); err != nil || (result.Telemetry != nil && result.SchemaVersion != 5) {
+	if err := telemetry.ValidateSummary(run.Config.Telemetry, result.Telemetry, result.StartedAt, result.TotalSeconds); err != nil || (result.Telemetry != nil && result.SchemaVersion < 5) {
 		fail(w, 400, "Run bundle has invalid target telemetry.")
+		return
+	}
+	if err := result.ValidateFlow(p); err != nil {
+		fail(w, 400, "Run bundle flow measurements: "+err.Error())
 		return
 	}
 	validCounts := func(s metrics.Counts) bool {

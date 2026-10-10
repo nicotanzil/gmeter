@@ -160,10 +160,42 @@ async function main() {
     assert.equal(attempts,80);assert.equal(await page.locator('#run-journey-canvas .je-skipped').count(),2);
     await page.locator('#run-journey-canvas .je-outline-step').filter({hasText:'Profile'}).click();
     assert.match(await page.locator('#run-journey-canvas .je-inspector').innerText(),/No latency samples/);
+    // Edit executable controls entirely through the visual editor.
+    await page.locator('.nav[data-view="build"]').click();await load(config);await request('Login');
+    await action('+ Branch').click();await edit('Condition variable','item');await edit('Comparison value','coffee');
+    let changed=await read();assert.equal(changed.scenarios[0].steps[1].if.condition.variable,'item');assert.equal(changed.scenarios[0].steps[1].if.condition.value,'coffee');
+    await action('+ True loop').click();await edit('Repeat count','3');await edit('Iteration variable','visit');
+    changed=await read();assert.equal(changed.scenarios[0].steps[1].if.then[1].loop.count,3);
+    await canvas.getByLabel('Loop mode',{exact:true}).selectOption('while');
+    await edit('Condition variable','item');await edit('Comparison value','coffee');await edit('Maximum iterations','4');
+    changed=await read();assert.equal(changed.scenarios[0].steps[1].if.then[1].loop.while.variable,'item');assert.equal(changed.scenarios[0].steps[1].if.then[1].loop.max_iterations,4);
+    await canvas.getByLabel('Loop mode',{exact:true}).selectOption('count');await edit('Repeat count','2');
+    await request('Branch');await action('+ False request').click();
+    assert.equal((await read()).scenarios[0].steps[1].if.else.length,1);
+    await canvas.getByLabel('Move to path',{exact:true}).selectOption('steps');
+    assert.equal((await read()).scenarios[0].steps.at(-1).name,'Request');await action('Undo').click();
+    assert.equal((await read()).scenarios[0].steps[1].if.else[0].name,'Request');
+    const flow=JSON.parse(fs.readFileSync(path.join(repo,'examples/flow.json'),'utf8'));flow.url=config.url;flow.duration='200ms';
+    await load(flow);await action('Validate').click();
+    await page.waitForFunction(()=>document.querySelector('#journey-canvas .je-message').textContent.startsWith('Valid configuration'));
+    assert.equal(await canvas.locator('.je-node[data-kind="branch"]').count(),2);assert.equal(await canvas.locator('.je-node[data-kind="loop"]').count(),1);
+    await action('Preview sequence').click();assert.match(await canvas.locator('.je-preview').innerText(),/Both branch paths/);
+    assert.equal(attempts,80,'Control edits and preview must not send target traffic.');
+    for(const width of [1440,768,400,320]){await page.setViewportSize({width,height:1100});await page.waitForTimeout(100);assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,`Flow overflow at ${width}px`);}
+    await page.setViewportSize({width:1600,height:1200});await request('Browse twice');
+    assert.ok(parseInt(await canvas.locator('.je-zoom').innerText(),10)>=85,'Selecting a node must zoom to a readable size.');await action('Fit').click();
+    if(process.env.GMETER_FLOW_SCREENSHOT)await canvas.screenshot({path:process.env.GMETER_FLOW_SCREENSHOT});
+    await action('Start run').click();await page.waitForFunction(()=>document.querySelector('#run-status').textContent==='PASSED',null,{timeout:20000});
+    assert.equal(attempts,88);assert.equal(await page.locator('#run-journey-canvas .je-node').count(),8);
+    await page.locator('#run-journey-canvas .je-outline-step').filter({hasText:'First visit?'}).click();
+    assert.match(await page.locator('#run-journey-canvas .je-inspector').innerText(),/Condition true: 2/);
+    assert.match(await page.locator('#run-journey-canvas .je-inspector').innerText(),/Condition false: 2/);
+    await page.locator('#run-journey-canvas .je-outline-step').filter({hasText:'Coffee checkout'}).click();
+    assert.match(await page.locator('#run-journey-canvas .je-inspector').innerText(),/Skipped by condition/);
     assert.deepEqual(errors,[]);
     assert.equal(failedResponses.filter(([p,s])=>p==='/api/validate'&&s===400).length,1);
     assert.deepEqual(failedResponses.filter(([p,s])=>!(p==='/api/validate'&&s===400)&&!(p==='/favicon.ico'&&s===404)),[]);
-    console.log('Journey browser integration passed: editing, drafts, dependencies, save/reload, XSS, six widths, 20 successful and 20 failed journeys, exact target counts.');
+    console.log('Journey browser integration passed: editing, drafts, dependencies, save/reload, XSS, six widths, 20 successful and 20 failed journeys, exact target counts, and nested branch/loop editing and execution.');
   } finally {
     if(browser)await browser.close();
     if(dashboard&&dashboard.exitCode===null){dashboard.kill('SIGTERM');await new Promise(resolve=>dashboard.once('exit',resolve));}

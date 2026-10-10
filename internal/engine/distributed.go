@@ -87,9 +87,12 @@ type PhaseData struct {
 	Journeys metrics.State `json:"journeys"`
 }
 type ScenarioData struct {
-	Journeys metrics.State   `json:"journeys"`
-	Steps    []metrics.State `json:"steps"`
-	Skipped  []int64         `json:"skipped"`
+	Journeys         metrics.State   `json:"journeys"`
+	Steps            []metrics.State `json:"steps"`
+	Skipped          []int64         `json:"skipped"`
+	Executed         []int64         `json:"executed,omitempty"`
+	SkippedCondition []int64         `json:"skipped_condition,omitempty"`
+	Controls         []ControlCounts `json:"controls,omitempty"`
 }
 type AggregateData struct {
 	LiveData
@@ -107,6 +110,13 @@ func (r *runner) aggregateData() *AggregateData {
 		for i, step := range stats.steps {
 			s.Steps = append(s.Steps, step.State())
 			s.Skipped = append(s.Skipped, stats.skipped[i].Load())
+			if r.plan.HasControlFlow() {
+				s.Executed = append(s.Executed, stats.executed[i].Load())
+				s.SkippedCondition = append(s.SkippedCondition, stats.skippedCondition[i].Load())
+			}
+		}
+		for i := range stats.controls {
+			s.Controls = append(s.Controls, stats.controls[i].snapshot())
 		}
 		a.Scenarios = append(a.Scenarios, s)
 	}
@@ -218,9 +228,26 @@ func validateAggregate(p config.Plan, a *AggregateData) error {
 		if len(scenario.Steps) != len(p.ScenarioPlans[i].Steps) || len(scenario.Skipped) != len(scenario.Steps) {
 			return fmt.Errorf("worker step shape mismatch")
 		}
+		if p.HasControlFlow() {
+			if len(scenario.Executed) != len(scenario.Steps) || len(scenario.SkippedCondition) != len(scenario.Steps) || len(scenario.Controls) != len(p.ScenarioPlans[i].Controls) {
+				return fmt.Errorf("worker flow shape mismatch")
+			}
+			for j, control := range scenario.Controls {
+				if !control.validFor(p.ScenarioPlans[i].Controls[j]) || !withinVisits(control.Entered, scenario.Journeys.Counts.Started, config.MaxFlowExecutions) {
+					return fmt.Errorf("invalid worker control counters")
+				}
+			}
+		}
 		journeys = append(journeys, scenario.Journeys)
 		for j, step := range scenario.Steps {
-			if scenario.Skipped[j] < 0 || step.Counts.Started+scenario.Skipped[j] != scenario.Journeys.Counts.Started {
+			executed := step.Counts.Started
+			if p.HasControlFlow() {
+				executed = scenario.Executed[j]
+				if scenario.SkippedCondition[j] < 0 || scenario.SkippedCondition[j] > scenario.Skipped[j] {
+					return fmt.Errorf("invalid conditional skip count")
+				}
+			}
+			if executed < 0 || executed > step.Counts.Started || !withinVisits(step.Counts.Started, executed, config.MaxFlowExecutions) || scenario.Skipped[j] < 0 || executed+scenario.Skipped[j] != scenario.Journeys.Counts.Started {
 				return fmt.Errorf("worker skipped step counts disagree")
 			}
 			requests = append(requests, step)
@@ -262,6 +289,9 @@ func Combine(c config.Config, start time.Time, load, total time.Duration, parts 
 		workload = "journeys"
 	}
 	r := Result{SchemaVersion: 4, Name: p.Name, URL: p.URL, Method: p.Method, Mode: p.Mode, Insecure: p.Insecure, ConcurrencyLimit: p.MaxInFlight, StartedAt: start.UTC(), PlannedLoadSeconds: p.LoadDuration.Seconds(), LoadSeconds: load.Seconds(), TotalSeconds: max(load, total).Seconds(), Interrupted: interrupted, Workload: workload, ArrivalDistribution: p.ArrivalDistribution, Seed: p.Seed, Snapshot: requests, Journeys: journeys, Distribution: &distribution}
+	if p.HasControlFlow() {
+		r.SchemaVersion = 6
+	}
 	var offset time.Duration
 	for i, phase := range p.Phases {
 		var states []LiveData
@@ -306,7 +336,7 @@ func Combine(c config.Config, start time.Time, load, total time.Duration, parts 
 			s := ScenarioResult{Name: scenario.Name, Weight: scenario.Weight, Passed: true, Journeys: journeyMetrics(collector.Snapshot(load))}
 			for j, step := range scenario.Steps {
 				states = nil
-				var skipped int64
+				var skipped, executed, conditional int64
 				for _, part := range parts {
 					d := part.Merge.Scenarios[i]
 					states = append(states, d.Steps[j])
@@ -314,12 +344,29 @@ func Combine(c config.Config, start time.Time, load, total time.Duration, parts 
 						return Result{}, fmt.Errorf("invalid skipped step count")
 					}
 					skipped += d.Skipped[j]
+					if p.HasControlFlow() {
+						executed += d.Executed[j]
+						conditional += d.SkippedCondition[j]
+					}
 				}
 				collector, err := metrics.Merge(states)
 				if err != nil {
 					return Result{}, err
 				}
-				s.Steps = append(s.Steps, StepResult{Name: step.Name, Method: step.Method, Skipped: skipped, Snapshot: collector.Snapshot(load)})
+				result := StepResult{Name: step.Name, Method: step.Method, Skipped: skipped, Snapshot: collector.Snapshot(load)}
+				if p.HasControlFlow() {
+					result.Path = step.Path
+					result.ExecutedJourneys = executed
+					result.SkippedCondition = conditional
+				}
+				s.Steps = append(s.Steps, result)
+			}
+			for j, control := range scenario.Controls {
+				counts := ControlCounts{}
+				for _, part := range parts {
+					counts.add(part.Merge.Scenarios[i].Controls[j])
+				}
+				s.Controls = append(s.Controls, ControlResult{Name: control.Name, Kind: control.Kind, Path: control.Path, ControlCounts: counts})
 			}
 			s.Checks = journeyChecks("", s.Journeys, scenario.Checks)
 			for _, check := range s.Checks {

@@ -159,9 +159,10 @@ receive neither telemetry configuration nor exporter credentials. The endpoint
 must be reachable from the coordinator; `127.0.0.1` refers to that machine.
 Telemetry observations do not establish per-worker target coverage.
 
-Configured telemetry produces **schema 5** results, locally or with workers.
-Runs without it retain local schema 3 or distributed schema 4. The dashboard
-accepts schemas 2–5 and validates observation shape, numeric bounds, time windows,
+Configured telemetry produces **schema 5** results for sequential tests, locally
+or with workers. Branch/loop flows use **schema 6**, preserving telemetry.
+Sequential runs without telemetry retain local schema 3 or distributed schema 4. The dashboard
+accepts schemas 2–6 and validates observation shape, numeric bounds, time windows,
 configuration, and accounting without contacting the exporter. Imports cannot
 verify the original measurements. JSON, HTML, workspace persistence, and run
 bundles preserve final telemetry summaries. Comparison flags differing telemetry
@@ -172,3 +173,8 @@ the dashboard's 900 workload points. Whole-run statistics retain all recorded
 outcomes. Live dashboard polling can skip intermediate scrapes; the finished
 chart uses the retained collector timeline. At 250ms, that timeline covers about
 225 seconds. The existing 16 MiB bundle limit still applies.
+
+Journeys with branches or loops use result schema 6, including worker and
+telemetry results. Existing sequential configurations retain their earlier schemas.
+Use current binaries on all workers; older workers reject new flow fields.
+See [branches and loops](scenarios.md#branches-and-loops).

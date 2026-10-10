@@ -24,9 +24,9 @@ globalThis.GmeterJourneyEditor = (() => {
     root.innerHTML='<div class="je-heading"><div><div class="eyebrow">FOLLOW THE FLOW</div><h2></h2><p class="je-subtitle"></p></div><div class="je-actions" data-actions></div></div><div class="je-guide" hidden></div><div class="je-message" role="status" aria-live="polite" hidden></div><div class="je-empty" hidden></div><div class="je-workspace"><aside class="je-library" aria-label="Journey selection"></aside><section class="je-center" aria-label="Journey flow diagram"><div class="je-toolbar"></div><div class="je-viewport" aria-label="Pannable journey diagram"><div class="je-stage"></div></div><div class="je-legend"></div><div class="je-preview" role="status" hidden></div></section><aside class="je-inspector" aria-label="Journey inspector"></aside></div><div class="je-footer"></div>';
     const q = name => root.querySelector(name), viewport=q('.je-viewport'), stage=q('.je-stage');
     q('h2').textContent=readonly?'Journey results':'Journey canvas';
-    q('.je-subtitle').textContent=readonly?'Observed HTTP attempts and skipped steps from this run.':'Select a request to edit it. Follow the arrows to understand execution.';
+    q('.je-subtitle').textContent=readonly?'Observed HTTP attempts and skipped steps from this run.':'Select a node to edit requests, branch conditions, or loop limits.';
     const guide=q('.je-guide');
-    guide.textContent='Solid arrows show execution order. Dotted links show extracted variables used later. Select a request for headers, body, checks, and extractions. Drag requests onto another request to reorder; the inspector also has Move up/down buttons. Drag the canvas to pan, or use Fit and zoom. A failed step stops the journey and skips later requests. Branches and loops are not supported by the current engine.';
+    guide.textContent='Solid arrows show execution order. Dotted links show extracted variables used later. Select a request for headers, body, checks, and extractions. Drag nodes to reorder or move between paths; the inspector also has Move up/down and Move to path controls. Drag the canvas to pan, or use Fit and zoom. A failed step stops the journey and skips later requests. Branches choose a True or False path using current variables. Loops repeat a body with a fixed count or a bounded while condition. Failed requests, invalid conditions, and exhausted while limits stop the journey.';
     const actions=q('[data-actions]');
     actions.append(button('How this works',()=>{guide.hidden=!guide.hidden;},'je-button je-quiet'));
     if(!readonly) for(const [label,action,cls] of [['Test settings',options.settings,'je-button'],['Validate',()=>validate(),'je-button'],['Save scenario',()=>invoke(options.save),'je-button'],['Start run',()=>invoke(options.start),'je-button je-primary']]) actions.append(button(label,action,cls));
@@ -37,8 +37,10 @@ globalThis.GmeterJourneyEditor = (() => {
       if(errors.size)message([...errors.values()].join(' '),true);else message('Draft updated. Validate before running.');
     }
     function current() {return config.scenarios?.[si];}
-    function step() {return current()?.steps[selected];}
-    function totalSteps(c=config) {return (c.scenarios||[]).reduce((n,s)=>n+s.steps.length,0);}
+    function entries() {return M.flatten(current()?.steps||[]);}
+    function step() {return entries()[selected]?.step;}
+    function measurement(index) {const n=entries()[index];if(!n)return null;const r=report?.scenarios?.[si],path=`scenarios[${si}].${n.path}`;if(M.kind(n.step)!=='request')return r?.controls?.find(c=>c.path===path);return r?.steps?.find(s=>s.path===path)||r?.steps?.[entries().slice(0,index).filter(n=>M.kind(n.step)==='request').length];}
+    function totalSteps(c=config) {return (c.scenarios||[]).reduce((n,s)=>n+M.flatten(s.steps).length,0);}
     function snapshot(c) {return {config:M.copy(c),si,selected};}
     function retain(s) {history.push(s);while(history.length>20||history.reduce((n,h)=>n+JSON.stringify(h.config).length,0)>8*1048576)history.shift();}
     function commit(action,keepInspector=false) {
@@ -55,21 +57,21 @@ globalThis.GmeterJourneyEditor = (() => {
     async function validate() {
       if(errors.size){message([...errors.values()].join(' '),true);return;}
       let source;try{source=JSON.stringify(options.read());message('Validating configuration…');await options.validate();if(source===JSON.stringify(options.read()))message('Valid configuration. Validation sent no workload traffic.');}
-      catch(e){if(source&&source!==JSON.stringify(options.read()))return;message(e.message,true);const match=/scenarios\[(\d+)\]\.steps\[(\d+)\]/.exec(e.message);if(match){si=Number(match[1]);selected=Number(match[2]);tab='request';render();centerSelected();}}
+      catch(e){if(source&&source!==JSON.stringify(options.read()))return;message(e.message,true);const match=/scenarios\[(\d+)\]\.(steps\[\d+\](?:\.(?:if\.(?:then|else)|loop\.steps)\[\d+\])*)/.exec(e.message);if(match){si=Number(match[1]);selected=entries().findIndex(n=>n.path===match[2]);tab='request';render();centerSelected();}}
     }
     function select(index) {
       if(errors.size){message('Correct the unfinished inspector fields before selecting another request.',true);return;}
-      selected=index;preview=null;render();centerSelected();
+      selected=index;preview=null;autoFit=false;render();centerSelected();
     }
     function render(keepInspector=false) {
       const c=current(), empty=!config.scenarios?.length;
       q('.je-workspace').hidden=empty;q('.je-footer').hidden=empty;q('.je-empty').hidden=!empty;
       if(empty){const emptyBox=q('.je-empty');emptyBox.replaceChildren(el('h3','Turn requests into a journey'),el('p','A journey runs an ordered sequence of requests, with shared cookies and extracted data. Start with the request in Test settings.'));if(!readonly)emptyBox.append(button('Create journey from current request',()=>{commit({type:'create'});autoFit=true;requestAnimationFrame(fit);},'je-button je-primary'));return;}
-      si=Math.max(0,Math.min(si,config.scenarios.length-1));selected=Math.max(-1,Math.min(selected,current().steps.length-1));
+      si=Math.max(0,Math.min(si,config.scenarios.length-1));selected=Math.max(-1,Math.min(selected,entries().length-1));
       renderLibrary();renderToolbar();renderGraph();renderFooter();
       if(!keepInspector)renderInspector();
       const previewBox=q('.je-preview');previewBox.hidden=!preview;
-      if(preview){previewBox.replaceChildren(el('strong',preview.failed===null?'Preview: all requests succeed':'Preview: selected request fails'),el('p',current().steps.map((s,i)=>`${M.stepName(s,i)}${preview.failed!==null&&i>preview.failed?' [skipped]':preview.failed===i?' [failed]':s.pause?` → wait ${s.pause}`:''}`).join(' → ')),el('small','Sequence preview only. Responses and assertion outcomes are not simulated. No traffic sent.'));}
+      if(preview){const complex=entries().some(n=>M.kind(n.step)!=='request');previewBox.replaceChildren(el('strong',complex?'Structure preview · paths depend on responses':preview.failed===null?'Preview: all requests succeed':'Preview: selected request fails'),el('p',entries().map(n=>`${n.depth?n.lane+': ':''}${M.stepName(n.step,n.index)}${complex&&M.kind(n.step)!=='request'?' ('+M.describe(n.step)+')':!complex&&preview.failed!==null&&n.index>preview.failed?' [skipped]':!complex&&preview.failed===n.index?' [failed]':n.step.pause?` → wait ${n.step.pause}`:''}`).join(' → ')),el('small',complex?'Both branch paths and bounded loop bodies are shown once. Runtime variables decide which requests execute. No traffic sent.':'Sequence preview only. Responses and assertion outcomes are not simulated. No traffic sent.'));}
       if(autoFit)requestAnimationFrame(fit);
     }
     function renderLibrary() {
@@ -77,11 +79,11 @@ globalThis.GmeterJourneyEditor = (() => {
       const sum=config.scenarios.reduce((n,s)=>n+(Number(s.weight??1)||0),0);
       config.scenarios.forEach((s,index)=>{const b=button('',()=>{if(errors.size){message('Correct unfinished inspector fields first.',true);return;}si=index;selected=0;preview=null;autoFit=true;render();},'je-journey');b.setAttribute('aria-pressed',index===si);b.append(el('span',s.name||`Journey ${index+1}`),el('small',sum?`${Math.round((s.weight??1)/sum*100)}%`:'—'));library.append(b);});
       if(!readonly)library.append(button('+ Add journey',()=>commit({type:'add-journey'}),'je-link'));
-      library.append(el('div','REQUEST ORDER','je-label'));
-      current().steps.forEach((s,index)=>{const b=button('',()=>select(index),'je-outline-step');b.setAttribute('aria-pressed',index===selected);b.append(el('span',String(index+1).padStart(2,'0')),el('span',M.stepName(s,index)));b.title=M.stepName(s,index);dragHandlers(b,index);library.append(b);});
+      library.append(el('div','FLOW OUTLINE','je-label'));
+      entries().forEach(({step:s,index,depth,lane})=>{const b=button('',()=>select(index),'je-outline-step');b.setAttribute('aria-pressed',index===selected);b.append(el('span',String(index+1).padStart(2,'0')),el('span',M.stepName(s,index)));b.title=`${lane} · ${M.stepName(s,index)}`;b.style.paddingLeft=`${8+Math.min(depth,8)*10}px`;b.dataset.kind=M.kind(s);if(depth)b.append(el('small',lane,'je-lane'));dragHandlers(b,index);library.append(b);});
       library.append(button(readonly?'Journey summary':'Journey settings & data',()=>select(-1),'je-link'));
-      if(!readonly){library.append(el('div','ADD TO JOURNEY','je-label'),button('+ HTTP request',()=>commit({type:'add-step',index:selected<0?current().steps.length-1:selected}),'je-link'),button('+ Think time',()=>{if(errors.size){message('Correct unfinished inspector fields first.',true);return;}if(!step()){message('Choose a request to pause after.',true);return;}if(!step().pause)commit({type:'edit-step',patch:{pause:'500ms'}});tab='request';renderInspector();q('[data-field="pause"]')?.focus();},'je-link'));}
-      const note=el('p','Requests run in order. Failure stops this journey.','je-library-note');library.append(note);
+      if(!readonly){library.append(el('div','ADD TO JOURNEY','je-label'),button('+ HTTP request',()=>commit({type:'add-step',index:selected<0?entries().length-1:selected}),'je-link'),button('+ Branch',()=>commit({type:'add-branch'}),'je-link'),button('+ Loop',()=>commit({type:'add-loop'}),'je-link'),button('+ Think time',()=>{if(errors.size){message('Correct unfinished inspector fields first.',true);return;}if(!step()||M.kind(step())!=='request'){message('Choose a request to pause after.',true);return;}if(!step().pause)commit({type:'edit-step',patch:{pause:'500ms'}});tab='request';renderInspector();q('[data-field="pause"]')?.focus();},'je-link'));}
+      const note=el('p','Branches choose a path. Loops repeat their body. Failures stop this journey.','je-library-note');library.append(note);
     }
     function renderToolbar() {
       const bar=q('.je-toolbar');bar.replaceChildren();
@@ -90,12 +92,12 @@ globalThis.GmeterJourneyEditor = (() => {
       tools.children[0].setAttribute('aria-label','Zoom out');tools.children[2].setAttribute('aria-label','Zoom in');bar.append(tools);
       const legend=q('.je-legend');legend.replaceChildren(el('span','— Execution order'),el('span',dataFlow?'┄ Extracted data · selected request':'Drag the background to pan'));
       if(readonly)legend.append(el('span','Failures and skips are observed counts.'));
-      else {legend.append(button('Preview sequence',()=>{if(errors.size){message('Correct unfinished inspector fields first.',true);return;}preview={failed:null};render();},'je-link'));if(preview&&selected>=0)legend.append(button('Preview failure here',()=>{preview={failed:selected};render();},'je-link'));}
+      else {legend.append(button('Preview sequence',()=>{if(errors.size){message('Correct unfinished inspector fields first.',true);return;}preview={failed:null};render();},'je-link'));if(preview&&selected>=0&&!entries().some(n=>M.kind(n.step)!=='request'))legend.append(button('Preview failure here',()=>{preview={failed:selected};render();},'je-link'));}
     }
     function applyTransform() {stage.style.transform=`translate(${pan.x}px, ${pan.y}px) scale(${zoom})`;q('.je-zoom').textContent=`${Math.round(zoom*100)}%`;}
-    function fit() {if(!world||!viewport.clientWidth)return;zoom=Math.min(1.15,Math.max(.04,Math.min((viewport.clientWidth-24)/(world.nodeWidth+60),(viewport.clientHeight-40)/world.height)));pan={x:(viewport.clientWidth-world.width*zoom)/2,y:(viewport.clientHeight-world.height*zoom)/2};autoFit=true;applyTransform();}
+    function fit() {if(!world||!viewport.clientWidth)return;zoom=Math.min(1.15,Math.max(.04,Math.min((viewport.clientWidth-24)/world.width,(viewport.clientHeight-40)/world.height)));pan={x:(viewport.clientWidth-world.width*zoom)/2,y:(viewport.clientHeight-world.height*zoom)/2};autoFit=true;applyTransform();}
     function zoomAt(next,point={x:viewport.clientWidth/2,y:viewport.clientHeight/2}) {const clamped=Math.min(2,Math.max(.04,next)),factor=clamped/zoom;pan={x:point.x-(point.x-pan.x)*factor,y:point.y-(point.y-pan.y)*factor};zoom=clamped;autoFit=false;applyTransform();}
-    function centerSelected() {if(!world||selected<0)return;const point=world.nodes[selected];if(!point)return;zoom=Math.max(.85,zoom);pan={x:(viewport.clientWidth-world.width*zoom)/2,y:viewport.clientHeight/2-(point.y+point.height/2)*zoom};autoFit=false;applyTransform();}
+    function centerSelected() {if(!world||selected<0)return;const point=world.nodes[selected];if(!point)return;zoom=Math.max(.85,zoom);pan={x:viewport.clientWidth/2-(point.x+world.nodeWidth/2)*zoom,y:viewport.clientHeight/2-(point.y+point.height/2)*zoom};autoFit=false;applyTransform();}
     function dragHandlers(n,index) {
       if(readonly)return;n.draggable=true;
       n.addEventListener('dragstart',e=>{if(errors.size){e.preventDefault();return;}dragging=index;e.dataTransfer.setData('text/plain',id);e.dataTransfer.effectAllowed='move';});
@@ -105,40 +107,38 @@ globalThis.GmeterJourneyEditor = (() => {
     }
     function renderGraph() {
       const c=current();if(!c)return;
-      const analysis=M.dependencies(config,si);world=M.layout(c.steps);world.width=Math.max(360,viewport.clientWidth);world.nodeWidth=Math.min(288,world.width-130);
+      const all=entries(),analysis=M.dependencies(config,si);world=M.layout(c.steps);
       stage.replaceChildren();stage.style.width=`${world.width}px`;stage.style.height=`${world.height}px`;
-      const cx=world.width/2,left=cx-world.nodeWidth/2;
       const svg=svgEl('svg',{width:world.width,height:world.height,'aria-hidden':'true',class:'je-edges'}),defs=svgEl('defs'),marker=svgEl('marker',{id:`${id}-arrow`,viewBox:'0 0 8 8',refX:'6',refY:'4',markerWidth:'6',markerHeight:'6',orient:'auto'});
       marker.append(svgEl('path',{d:'M 1 1 L 6 4 L 1 7',class:'je-arrow'}));defs.append(marker);svg.append(defs);
-      function line(y1,y2){svg.append(svgEl('path',{d:`M ${cx} ${y1} V ${y2-4}`,class:'je-execution','marker-end':`url(#${id}-arrow)`}));}
-      function endpoint(text,y){const n=el('div',text,'je-endpoint');n.style.left=`${cx-86}px`;n.style.top=`${y}px`;stage.append(n);}
-      endpoint('● JOURNEY START',22);let previous=48;
+      for(const edge of world.edges){const {x1,y1,x2,y2,label,bend}=edge;let d=bend!==null?`M ${x1} ${y1} H ${bend} V ${y2} H ${x2}`:x1===x2?`M ${x1} ${y1} V ${y2-4}`:`M ${x1} ${y1} V ${(y1+y2)/2} H ${x2} V ${y2-4}`;svg.append(svgEl('path',{d,class:'je-execution','marker-end':`url(#${id}-arrow)`}));if(label){const text=svgEl('text',{x:bend??x2,y:label==='Repeat'?(y1+y2)/2:Math.max(y1+15,Math.min(y2-5,y1+25)),class:'je-edge-label','text-anchor':'middle'});text.textContent=label;svg.append(text);}}
+      function endpoint(text,y){const n=el('div',text,'je-endpoint');n.style.left=`${world.cx-86}px`;n.style.top=`${y}px`;stage.append(n);}
+      endpoint('● JOURNEY START',22);endpoint('■ JOURNEY END',world.endY);
       world.nodes.forEach((position,index)=>{
-        const s=c.steps[index],info=analysis.steps[index],result=report?.scenarios?.[si]?.steps?.[index];line(previous,position.y);
-        const b=button('',()=>select(index),'je-node');b.style.left=`${left}px`;b.style.top=`${position.y}px`;b.style.width=`${world.nodeWidth}px`;b.style.height=`${position.height}px`;b.setAttribute('aria-pressed',selected===index);b.setAttribute('aria-label',`${readonly?'Inspect':'Edit'} ${M.stepName(s,index)}`);b.classList.toggle('je-invalid',!!info.missing.length&&!readonly);b.classList.toggle('je-failed',!!result?.failed);b.classList.toggle('je-skipped',!!result?.skipped&&!result.completed);dragHandlers(b,index);
+        const s=all[index].step,kind=M.kind(s),info=analysis.steps[index],result=measurement(index),left=position.x,cx=left+144;
+        const b=button('',()=>select(index),'je-node');b.dataset.kind=kind;b.style.left=`${left}px`;b.style.top=`${position.y}px`;b.style.width=`${world.nodeWidth}px`;b.style.height=`${position.height}px`;b.setAttribute('aria-pressed',selected===index);b.setAttribute('aria-label',`${readonly?'Inspect':'Edit'} ${M.stepName(s,index)}`);b.classList.toggle('je-invalid',!!info.missing.length&&!readonly);b.classList.toggle('je-failed',!!result?.failed);b.classList.toggle('je-skipped',!!result?.skipped&&!result.completed);dragHandlers(b,index);
         const top=el('div',undefined,'je-node-title');top.append(el('span',M.stepName(s,index)),el('small',String(index+1).padStart(2,'0')));
-        const request=el('div',undefined,'je-node-request');request.append(el('span',s.method||'GET','je-method'),el('code',s.url||'Choose a request path'));request.title=s.url||'';
-        const meta=el('div',undefined,'je-node-meta');meta.append(el('span',result?`${result.completed||0} completed${result.skipped?` · ${result.skipped} skipped`:''}`:`${s.assertions?.length||0} checks`));
+        const request=el('div',undefined,'je-node-request');request.append(el('span',kind==='request'?s.method||'GET':kind==='branch'?'IF':'LOOP','je-method'),el('code',M.describe(s)));request.title=M.describe(s);
+        const meta=el('div',undefined,'je-node-meta');meta.append(el('span',kind==='request'?(result?`${result.completed||0} attempts${result.skipped?` · ${result.skipped} skipped journeys`:''}`:`${s.assertions?.length||0} checks`):result?(kind==='branch'?`True ${result.condition_true} · False ${result.condition_false}`:`${result.iterations} body iterations`):kind==='branch'?'True / False paths':'Bounded repetition'));
         if(info.outputs.length)meta.append(el('span',`{ } ${info.outputs.join(', ')}`,'je-data-label'));else if(info.inputs.length)meta.append(el('span',`Uses ${info.inputs.map(v=>v.name).join(', ')}`,'je-data-label'));
         b.append(top,request,meta);
-        if(result){const stats=el('div',undefined,'je-node-stats');stats.append(el('span',result.latency?.samples?`p95 ${Number(result.latency.p95_ms).toFixed(1)} ms`:'No latency samples'),el('span',result.completed?`${Number(result.error_percent).toFixed(1)}% errors`:`${result.skipped||0} skipped`));b.append(stats);}
-        else if(info.missing.length&&!readonly){b.append(el('div',`Missing: ${info.missing.join(', ')}`,'je-node-issue'));}
-        if(preview?.failed!==null&&preview?.failed!==undefined)b.classList.toggle('je-skipped',index>preview.failed);
-        b.addEventListener('focus',()=>{if(b.matches(':focus-visible'))centerNode(index);});stage.append(b);previous=position.y+position.height;
-        if(position.pause){line(previous,position.pause.y);const pause=button(`◷ Think time · ${s.pause}`,()=>{select(index);if(!readonly){tab='request';renderInspector();q('[data-field="pause"]')?.focus();}},'je-pause');pause.style.left=`${cx-100}px`;pause.style.top=`${position.pause.y}px`;stage.append(pause);previous=position.pause.y+position.pause.height;}
+        if(result){const stats=el('div',undefined,'je-node-stats');stats.append(el('span',kind!=='request'?`${result.entered} visits`:result.latency?.samples?`p95 ${Number(result.latency.p95_ms).toFixed(1)} ms`:'No latency samples'),el('span',kind!=='request'?`${result.failed} failed`:result.completed?`${Number(result.error_percent).toFixed(1)}% errors`:`${result.skipped||0} skipped`));b.append(stats);}
+        else if(info.missing.length&&!readonly)b.append(el('div',`Missing: ${info.missing.join(', ')}`,'je-node-issue'));
+        if(preview?.failed!=null&&!all.some(n=>M.kind(n.step)!=='request'))b.classList.toggle('je-skipped',index>preview.failed);
+        b.addEventListener('focus',()=>{if(b.matches(':focus-visible'))centerNode(index);});stage.append(b);
+        if(position.pause){const pause=button(`◷ Think time · ${s.pause}`,()=>{select(index);if(!readonly){tab='request';renderInspector();q('[data-field="pause"]')?.focus();}},'je-pause');pause.style.left=`${cx-100}px`;pause.style.top=`${position.pause.y}px`;stage.append(pause);}
       });
-      line(previous,world.endY);endpoint('■ JOURNEY END',world.endY);
-      if(dataFlow) for(const [i,edge] of analysis.edges.entries()){
+      if(dataFlow)for(const [i,edge] of analysis.edges.entries()){
         if(selected>=0&&edge.from!==selected&&edge.to!==selected)continue;
-        const y1=world.nodes[edge.from].y+63,y2=world.nodes[edge.to].y+63,gutter=left-20-(i%3)*12;
-        const path=svgEl('path',{d:`M ${left} ${y1} C ${gutter} ${y1}, ${gutter} ${y1}, ${gutter} ${y1+24} V ${y2-24} C ${gutter} ${y2}, ${gutter} ${y2}, ${left} ${y2}`,class:'je-data-edge'});const title=svgEl('title');title.textContent=edge.names.join(', ');path.append(title);svg.append(path);
+        const from=world.nodes[edge.from],to=world.nodes[edge.to],x1=from.x,x2=to.x,y1=from.y+63,y2=to.y+63,gutter=Math.min(x1,x2)-20-(i%3)*12;
+        const path=svgEl('path',{d:`M ${x1} ${y1} C ${gutter} ${y1}, ${gutter} ${y2}, ${x2} ${y2}`,class:'je-data-edge'});const title=svgEl('title');title.textContent=edge.names.join(', ');path.append(title);svg.append(path);
       }
       stage.prepend(svg);applyTransform();
     }
-    function centerNode(index) {const p=world?.nodes[index];if(!p)return;const top=pan.y+p.y*zoom,bottom=top+p.height*zoom;if(top<0||bottom>viewport.clientHeight){pan={x:(viewport.clientWidth-world.width*zoom)/2,y:viewport.clientHeight/2-(p.y+p.height/2)*zoom};autoFit=false;applyTransform();}}
+    function centerNode(index) {const p=world?.nodes[index];if(!p)return;const top=pan.y+p.y*zoom,bottom=top+p.height*zoom;if(top<0||bottom>viewport.clientHeight){pan={x:viewport.clientWidth/2-(p.x+world.nodeWidth/2)*zoom,y:viewport.clientHeight/2-(p.y+p.height/2)*zoom};autoFit=false;applyTransform();}}
     function renderFooter() {
-      const footer=q('.je-footer'),issues=M.dependencies(config,si).steps.flatMap((s,i)=>s.missing.map(name=>`${M.stepName(current().steps[i],i)} needs {{${name}}}`));footer.replaceChildren();
-      footer.append(el('span',readonly?`${report?.scenarios?.[si]?.journeys?.completed??0} completed journeys · per-step cards show HTTP measurements`:issues.length?`${issues.length} missing variable reference(s): ${issues.join('; ')}`:`${current().steps.length} request steps · ${totalSteps()} across this test`));footer.classList.toggle('je-bad',!readonly&&!!issues.length);
+      const footer=q('.je-footer'),issues=M.dependencies(config,si).steps.flatMap((s,i)=>s.missing.map(name=>`${M.stepName(entries()[i].step,i)} needs {{${name}}}`));footer.replaceChildren();
+      footer.append(el('span',readonly?`${report?.scenarios?.[si]?.journeys?.completed??0} completed journeys · per-step cards show HTTP measurements`:issues.length?`${issues.length} missing variable reference(s): ${issues.join('; ')}`:`${entries().length} flow nodes · ${totalSteps()} across this test`));footer.classList.toggle('je-bad',!readonly&&!!issues.length);
       if(!readonly)footer.append(button('Undo',undo,'je-link'));footer.append(el('small',readonly?'Step p95 values cannot be added to get journey p95.':'Editing and previewing send no workload traffic.'));
       if(!readonly)footer.querySelector('button').disabled=!history.length;
     }
@@ -163,11 +163,12 @@ globalThis.GmeterJourneyEditor = (() => {
       const c=current();if(!c)return;
       if(selected<0){journeyInspector(inspector);return;}
       const s=step(),info=M.dependencies(config,si).steps[selected];if(!s)return;
+      if(M.kind(s)!=='request'){controlInspector(inspector,s);return;}
       inspector.append(el('h3',M.stepName(s,selected),'je-inspector-title'));
       const tabs=readonly?['results']:['request','checks','variables'];if(!tabs.includes(tab))tab=tabs[0];
       const tabBar=el('div',undefined,'je-tabs');for(const name of tabs){const b=button(name[0].toUpperCase()+name.slice(1),()=>{if(errors.size){message('Correct unfinished fields before changing inspector tabs.',true);return;}tab=name;renderInspector();},'je-tab');b.setAttribute('aria-pressed',name===tab);tabBar.append(b);}inspector.append(tabBar);
       const patch=(value,keep=true)=>commit({type:'edit-step',patch:value},keep);
-      if(readonly){resultInspector(inspector,report?.scenarios?.[si]?.steps?.[selected]);return;}
+      if(readonly){resultInspector(inspector,measurement(selected));return;}
       if(tab==='request'){
         field(inspector,'Step name',s.name||'',value=>patch({name:value}),{key:'name',help:'Unique within this journey. A blank name uses its position.'});
         field(inspector,'HTTP method',s.method||'GET',value=>patch({method:value}),{key:'method'});
@@ -186,9 +187,46 @@ globalThis.GmeterJourneyEditor = (() => {
         inspector.append(el('p','Extracted values become available after a successful response. Values reset for each journey.','je-note'));
       }
       if(info.missing.length)inspector.append(el('p',`Missing variables: ${info.missing.map(v=>'{{'+v+'}}').join(', ')}. Move their producer earlier or define them in journey data.`,'je-note je-bad'));
-      const reorder=el('div',undefined,'je-inspector-actions');
-      const up=button('Move up',()=>commit({type:'move-step',to:selected-1})),down=button('Move down',()=>commit({type:'move-step',to:selected+1}));up.disabled=selected<=0;down.disabled=selected>=c.steps.length-1;
-      reorder.append(up,down,button('Duplicate',()=>commit({type:'duplicate-step'})),button('Remove',()=>commit({type:'remove-step'}),'je-button je-danger'));inspector.append(reorder);
+      movementInspector(inspector);
+    }
+    function movementInspector(container) {
+      const all=entries(),n=all[selected],siblings=all.filter(v=>v.container===n.container),position=siblings.indexOf(n);
+      const reorder=el('div',undefined,'je-inspector-actions'),up=button('Move up',()=>commit({type:'move-step',to:siblings[position-1].index})),down=button('Move down',()=>commit({type:'move-step',to:siblings[position+1].index}));up.disabled=position===0;down.disabled=position===siblings.length-1;
+      reorder.append(up,down,button('Duplicate',()=>commit({type:'duplicate-step'})),button('Remove',()=>commit({type:'remove-step'}),'je-button je-danger'));container.append(reorder);
+      const choices=M.containers(current()).filter(c=>!c.path.startsWith(n.path+'.')).map(c=>[c.path,c.label]);
+      field(container,'Move to path',n.container,value=>{draft('Move to path');commit({type:'move-container',container:value});},{select:choices,help:'Moves this node and all its children to the end of the selected path.'});
+    }
+    function conditionEditor(container,condition,apply) {
+      const latest=()=>step().if?.condition||step().loop.while;
+      field(container,'Condition variable',condition.variable,value=>apply({...latest(),variable:value}),{key:'condition-variable',help:'A variable from journey data, a prior extraction, or an enclosing loop.'});
+      field(container,'Condition operator',condition.operator||'equals',value=>{const c={...latest(),operator:value};if(['exists','not_exists'].includes(value))delete c.value;else c.value??='';apply(c,false);},{key:'condition-operator',select:[['equals','Equals'],['not_equals','Does not equal'],['contains','Contains'],['not_contains','Does not contain'],['gt','Greater than (number)'],['gte','At least (number)'],['lt','Less than (number)'],['lte','At most (number)'],['exists','Exists'],['not_exists','Does not exist']]});
+      if(!['exists','not_exists'].includes(condition.operator))field(container,'Comparison value',condition.value??'',value=>apply({...latest(),value}),{key:'condition-value',help:'Text or {{variable}}. Empty text is allowed; numeric comparisons require finite numbers.'});
+    }
+    function controlInspector(container,s) {
+      const kind=M.kind(s);container.append(el('h3',M.stepName(s,selected),'je-inspector-title'));
+      if(readonly){const r=measurement(selected);container.append(el('p',kind==='branch'?'Observed branch decisions':'Observed loop executions','je-note'));if(!r){container.append(el('p','No control measurements.'));return;}for(const [name,value] of [['Visits',r.entered],['Completed',r.completed],['Failed',r.failed],['Condition true',r.condition_true],['Condition false',r.condition_false],['Body iterations',r.iterations],['Condition errors',r.condition_errors]])container.append(el('p',`${name}: ${value}`,'je-note'));container.append(el('p','Control visits and decisions are counts, with no HTTP latency samples.','je-note'));return;}
+      const patch=(value,keep=true)=>commit({type:'edit-step',patch:value},keep);
+      field(container,'Step name',s.name||'',value=>patch({name:value}),{key:'name'});
+      if(kind==='branch'){
+        conditionEditor(container,s.if.condition,(condition,keep=true)=>patch({if:{...step().if,condition}},keep));
+        container.append(el('p','Evaluates once on each visit. Only the chosen path runs; both paths join at the next node.','je-note'));
+      }else{
+        const loop=s.loop;
+        field(container,'Loop mode',loop.count!=null?'count':'while',value=>{const next={...step().loop};delete next.count;delete next.while;delete next.max_iterations;if(value==='count')next.count=2;else{next.while={variable:'journey_id',operator:'equals',value:'1'};next.max_iterations=10;}patch({loop:next},false);},{select:[['count','Fixed count'],['while','While condition']]});
+        if(loop.count!=null)field(container,'Repeat count',loop.count,value=>patch({loop:{...step().loop,count:number(value,'Repeat count',false,true,1,1000)}}),{number:true,integer:true,min:1,max:1000});
+        else{
+          conditionEditor(container,loop.while,(condition,keep=true)=>patch({loop:{...step().loop,while:condition}},keep));
+          field(container,'Maximum iterations',loop.max_iterations,value=>patch({loop:{...step().loop,max_iterations:number(value,'Maximum iterations',false,true,1,1000)}}),{number:true,integer:true,min:1,max:1000});
+        }
+        field(container,'Iteration variable',loop.index_variable||'',value=>patch({loop:{...step().loop,index_variable:value}}),{help:'Optional 1 based counter, scoped to this body. Its previous value is restored on exit.'});
+        container.append(el('p',loop.count!=null?'Runs the body a fixed number of times. A child failure, cancellation, or journey deadline stops repetition.':'The condition is checked before each body iteration. A while condition still true at the limit fails the journey with loop_limit. Update its variable through a response extraction.','je-note'));
+      }
+      container.append(el('h4','Add to a child path'));
+      const n=entries()[selected];for(const [suffix,label] of kind==='branch'?[['.if.then','True'],['.if.else','False']]:[['.loop.steps','Body']]){
+        const row=el('div',undefined,'je-child-actions');row.append(el('strong',label));for(const [type,word] of [['add-step','request'],['add-branch','branch'],['add-loop','loop']])row.append(button(`+ ${label} ${word}`,()=>commit({type,container:n.path+suffix}),'je-link'));container.append(row);
+      }
+      const info=M.dependencies(config,si).steps[selected];if(info.missing.length)container.append(el('p',`Missing variables: ${info.missing.join(', ')}`,'je-note je-bad'));
+      movementInspector(container);
     }
     function extractionEditor(container,s) {
       container.append(el('h4','Extract from this response'));
@@ -224,9 +262,9 @@ globalThis.GmeterJourneyEditor = (() => {
       if(!r){container.append(el('p','No final measurements are available for this step.','je-note'));return;}
       container.append(el('p',journey?'Whole-journey measurements':'HTTP step measurements','je-note'));
       const table=el('table',undefined,'je-result-table'),body=el('tbody');
-      for(const [name,value] of [['Completed',r.completed??0],['Failed',r.failed??0],...(!journey?[['Skipped',r.skipped??0]]:[]),['Error rate',r.completed?`${Number(r.error_percent).toFixed(2)}%`:'No completed samples'],['p95',r.latency?.samples?`${Number(r.latency.p95_ms).toFixed(2)} ms`:'No latency samples'],['Latency samples',r.latency?.samples??0]]){const row=el('tr');row.append(el('th',name),el('td',String(value)));body.append(row);}table.append(body);container.append(table);
+      for(const [name,value] of [['Completed',r.completed??0],['Failed',r.failed??0],...(!journey?[['Skipped journeys',r.skipped??0],...(r.path?[['Reached journeys',r.executed_journeys??0],['Skipped by condition',r.skipped_condition??0]]:[])]:[]),['Error rate',r.completed?`${Number(r.error_percent).toFixed(2)}%`:'No completed samples'],['p95',r.latency?.samples?`${Number(r.latency.p95_ms).toFixed(2)} ms`:'No latency samples'],['Latency samples',r.latency?.samples??0]]){const row=el('tr');row.append(el('th',name),el('td',String(value)));body.append(row);}table.append(body);container.append(table);
       if(r.errors&&Object.keys(r.errors).length){container.append(el('h4','Observed failures'));for(const [name,value] of Object.entries(r.errors))container.append(el('p',`${name}: ${value}`,'je-note'));}
-      container.append(el('p',journey?'Journey latency includes requests, assertions, and pauses.':'A skipped step sent no HTTP request. No response bodies or extracted values are shown.','je-note'));
+      container.append(el('p',journey?'Journey latency includes requests, assertions, and pauses.':'Attempts can exceed journeys inside loops. Skipped journeys never attempted this node; conditional skips identify an unchosen path or a zero-iteration body. No response bodies or extracted values are shown.','je-note'));
     }
     function undo() {
       if(!history.length)return;const previous=history.pop();errors.clear();options.onDraftError?.('');config=previous.config;si=previous.si;selected=previous.selected;preview=null;internal=true;try{options.write(config);}finally{internal=false;}render();message('Last canvas edit undone.');

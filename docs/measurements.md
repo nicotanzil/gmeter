@@ -29,7 +29,9 @@ tools. Counts describe logical workload execution; they are not wire captures.
   invented for a missed journey or a skipped dependent step. Report schema 3
   retains schema 2's journey, scenario, and step results and adds optional
   generator and HTTP diagnostics. Distributed results use schema 4; configured
-  server telemetry uses schema 5 in either execution mode. `workload` identifies the arrival unit.
+  server telemetry uses schema 5 in either execution mode. Journeys containing
+  branches or loops use schema 6 in all execution modes, preserving telemetry.
+  `workload` identifies the arrival unit.
   `target_rate` is in that unit; `target_rps` is zero for journey workloads.
 - A **started** request is a dispatched logical HTTP attempt. Go's transport may
   transparently retry certain idempotent attempts on broken reused connections;
@@ -143,3 +145,8 @@ runs and retain the test inputs and environment alongside results.
 No published benchmark in this repository establishes that gmeter is faster or
 more accurate than JMeter. The [parity program](jmeter-parity.md) tracks functional
 coverage separately from performance evidence.
+
+Branch and loop results separate HTTP attempts from distinct journeys that reached
+each request. `executed_journeys + skipped = scenario.journeys.started`; repeated
+attempts can exceed that journey count. See [flow measurements](scenarios.md#flow-measurements-and-compatibility)
+for conditional skips, control counts, and loop-limit errors.

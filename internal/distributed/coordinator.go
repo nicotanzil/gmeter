@@ -449,7 +449,7 @@ func Run(ctx context.Context, c config.Config, opts Options) (engine.Result, err
 	if err == nil && targetSampler != nil {
 		value := targetSampler.Finish()
 		result.Telemetry = &value
-		result.SchemaVersion = 5
+		result.SchemaVersion = max(result.SchemaVersion, 5)
 		result.TotalSeconds = max(result.TotalSeconds, time.Since(start).Seconds())
 	}
 	return result, err

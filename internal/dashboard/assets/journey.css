@@ -58,3 +58,9 @@
 .je-field small,.je-map-row input,.je-variable-row small,.je-footer small{font-size:11px}
 .je-map-row input,.je-variable-row code{font-family:var(--font-mono)}
 .je-result-table td{font-variant-numeric:tabular-nums}
+/* Explicit control types and path labels keep complex flows readable. */
+.je-node[data-kind=branch]{border-color:#b8c7e8;background:#fbfcff}.je-node[data-kind=branch] .je-method{color:#4c60a4;background:#edf0fc}
+.je-node[data-kind=loop]{border-color:#d6c3e4;background:#fefbff}.je-node[data-kind=loop] .je-method{color:#83559b;background:#f3eafb}
+.je-node[data-kind=branch][aria-pressed=true],.je-node[data-kind=loop][aria-pressed=true]{border-color:#168b72}
+.je-edge-label{font:10px ui-sans-serif,system-ui;fill:#536e64;paint-order:stroke;stroke:#f6f9f8;stroke-width:5px;stroke-linejoin:round}
+.je-outline-step .je-lane{font-size:8px;color:#74877d;margin-left:auto;flex-shrink:0}.je-child-actions{display:flex;gap:3px;flex-wrap:wrap;align-items:center;border:1px solid var(--line);padding:6px;border-radius:6px;margin-bottom:8px}.je-child-actions strong{font-size:10px;padding:4px}

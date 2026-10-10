@@ -47,12 +47,13 @@ between sessions; update it when functionality or priorities change.
 
 ## Current scope
 
-Milestones 1, 2, and 3 are complete. Version `0.6.0-dev` adds opt-in target-server
-telemetry to distributed rate-mode workers, generator diagnostics, and HTTP
-timing in milestone 4. JSON scenarios
+Milestones 1, 2, and 3 are complete. The current implementation includes opt-in
+target-server telemetry, distributed rate-mode workers, generator diagnostics,
+and HTTP timing in milestone 4. JSON scenarios
 and Go's standard library keep this version reproducible without third-party
 runtime dependencies.
-Tests support single requests and weighted journeys with sequential HTTP steps,
+Tests support single requests and weighted journeys with nested if/else, bounded
+fixed-count/while loops, sequential HTTP requests,
 isolated sessions, variables, data rows, extraction, and assertions. No claim
 of superiority over JMeter is justified until milestone 5 is complete.
 
@@ -61,15 +62,37 @@ of superiority over JMeter is justified until milestone 5 is complete.
 Read this file, README.md, docs/scenarios.md, docs/dashboard.md,
 docs/diagnostics.md, docs/workers.md, and docs/telemetry.md first. Continue
 the bundled JMeter parity program in docs/jmeter-parity.md. The next slice is
-CSV datasets and richer HTTP workflows. The sequential journey canvas now edits
-requests, checks, extractions, data, variables, and per-journey criteria. Branches
-and loops need engine support before they can become executable visual controls.
+CSV datasets and richer HTTP workflows. The journey canvas now edits
+requests, nested branches and loops, checks, extractions, data, variables, and
+per-journey criteria. Foreach, once-only, switch, shared fragments, and richer
+failure actions remain in the execution-controls backlog.
 Baseline regression work moves to the
 final evidence stage of that program.
 Distributed users mode, balancing, and durable worker recovery remain separate
 extensions to the first worker version. Reuse the existing engine and validation.
 Preserve the measurement contract:
 journey arrivals and HTTP request attempts have separate counts and rates.
+
+### Executable control flow acceptance (10 October 2026)
+
+- Recursive request/if/loop configuration preserves existing journey files.
+  Validation checks definite variable availability, scoped iteration counters,
+  nesting depth (8), counts/while caps (1000), and worst-case execution cost
+  (10,000 nodes per journey). Conditions use explicit comparisons, no scripts.
+- Fixed loops execute a positive count; while loops check before each iteration
+  and fail with `loop_limit` when the condition stays true at the cap. Failures,
+  deadlines, and cancellation propagate through enclosing controls.
+- Schema 6 distinguishes repeated request attempts, distinct reached/skipped
+  journeys, and conditional bypasses. Bounded per-control counters describe
+  decisions and body starts. Current workers merge counts and histograms;
+  schema 2–5 imports and sequential result schemas remain supported.
+- The canvas supports nested child paths, conditions, loop modes/limits,
+  scoped counters, path moves, subtree duplication/removal, undo, structural
+  previews, and read-only observed decisions/iterations. `examples/flow.json`
+  and the Branches and loops starter use the local demo.
+- Validation includes Go vet/race fixtures, local worker execution/aggregation,
+  persistence and import tampering checks, report escaping, and browser checks
+  for control edits, responsive bounds, and independently counted requests.
 
 ### Sequential journey canvas acceptance (10 October 2026)
 
@@ -81,7 +104,7 @@ journey arrivals and HTTP request attempts have separate counts and rates.
   reports missing dependencies; drafts block validation, save, export, and start.
 - Final diagrams use recorded per-step and journey measurements, show skipped
   requests without fabricated latency, and keep per-step p95 distinct from
-  whole-journey p95. Branches and loops remain engine backlog.
+  whole-journey p95. Executable branches/loops were added in the subsequent slice.
 - Go vet, all race-enabled tests, both builds, and eight JavaScript model tests
   passed. The browser suite passed conversion from POST to journey, drag and
   button reordering, undo, extraction/assertion edits, draft retention, save/load,

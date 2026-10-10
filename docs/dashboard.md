@@ -43,7 +43,7 @@ Load **Authenticated checkout journeys** from the starter menu to open the
 request**. **Test settings** holds the base URL, traffic model, defaults, and
 request pass criteria. Both tabs and Advanced JSON edit the same CLI configuration.
 
-1. Select a request card or its entry under **Request order**. The inspector
+1. Select a request card or its entry under **Flow outline**. The inspector
    edits its method, path, headers, body, successful statuses, and pause after
    success. Test headers are inherited; step headers override matching names.
 2. Open **Checks** to add JSON Pointer, response-header, or body-content
@@ -74,14 +74,35 @@ draft and clears its undo history. Changing Test settings also clears canvas und
 history so Undo cannot overwrite newer traffic settings. Save work before
 replacing the test or reloading.
 
-The current engine executes sequential HTTP journeys. Branches, loops, and
-standalone pause nodes are not supported. Think time belongs to the preceding
-request and runs only after that request succeeds, including after the final step.
+Use **+ Branch** for a conditional True/False split or **+ Loop** for a repeated
+body. Select a control card to edit its condition or repeat count. Child-path
+buttons add requests, branches, or loops inside it; **Move to path** moves any
+node and its children into another path. Dragging onto a node also supports
+moving between paths. **Move up/down** changes order among siblings.
+
+Choose **Fixed count** to repeat 1–1000 times, or **While condition** with a
+required maximum. While checks before each iteration, and fails with
+`loop_limit` if still true after the maximum; use an extraction to update the
+condition variable. **Iteration variable** is an optional 1 based counter scoped
+to the body. Both controls can be nested. Validation checks every path and rejects
+excessive iteration products or unavailable variables. See [flow semantics](scenarios.md#branches-and-loops).
+
+Load **Branches and loops** for a complete local-demo example: login, two profile
+visits with a nested condition, then checkout chosen by the data row. Its 20
+journeys produce 80 HTTP attempts when successful. Structure previews show both
+paths and loop bodies once; runtime responses decide execution, so failure
+simulation is offered only for sequential flows. No preview sends traffic.
+
+Think time belongs to the preceding request and runs only after that request
+succeeds, including after the final step. Standalone pause nodes remain unsupported.
 
 After a journey run finishes, **Journey results** shows the actual per-step
 p95, error rate, failure counts, and skipped requests. Select **Journey summary**
 for whole-journey measurements. No latency is shown when there are no samples;
-step p95 values cannot be summed into journey p95. The diagram is read-only.
+step p95 values cannot be summed into journey p95. The diagram is read-only. Branch cards show True/False decisions and loop cards
+show body iterations. Request attempts can exceed reached journeys inside loops.
+Skipped journeys never attempted that node; the inspector distinguishes conditional
+bypasses from the total. Controls have no HTTP latency.
 
 Both editors update the same configuration. With phases present, their rates
 and durations control the workload; the single-duration/rate fields are hidden.
@@ -168,7 +189,7 @@ Telemetry requests are excluded from workload counters and load checks.
 ## History and portable files
 
 Finished and interrupted runs persist across restarts. Each stores configuration,
-final results (schema 3 locally, schema 4 for workers, schema 5 with telemetry),
+final results (schema 3 locally, schema 4 for workers, schema 5 with telemetry; schema 6 for branches/loops),
 and its retained timeline. If the process ends before
 final persistence, its reservation appears as **abandoned** at the next startup.
 That run is incomplete and cannot be resumed or compared.
@@ -182,12 +203,12 @@ regression verdict.
 | Download | Contents | Importable |
 | --- | --- | --- |
 | Editor JSON | Reusable configuration | Yes |
-| Result JSON | Same schema 3/4/5 measurements as the CLI | No; configuration is absent |
+| Result JSON | Same schema 3/4/5/6 measurements as the CLI | No; configuration is absent |
 | HTML report | Standalone report | No |
 | Run + timeline | Configuration, final results, retained timeline | Yes |
 
 Use **Import JSON** or **Import run** for run bundles. Imports require final
-schema 2–5 results, validate configuration, final count equations, and telemetry
+schema 2–6 results, validate configuration, final count equations, and telemetry
 observation bounds/accounting when present, have a 16 MiB
 limit, and assign a new ID. They send no traffic. Imported runs are marked
 **IMPORTED**; their original traffic has not been independently verified.

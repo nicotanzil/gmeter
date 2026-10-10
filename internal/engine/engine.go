@@ -164,7 +164,7 @@ func Run(ctx context.Context, c config.Config, opts Options) (Result, error) {
 		r.phaseJourneys = append(r.phaseJourneys, metrics.New())
 	}
 	for _, scenario := range p.ScenarioPlans {
-		stats := &scenarioStats{journeys: metrics.New(), skipped: make([]atomic.Int64, len(scenario.Steps))}
+		stats := &scenarioStats{journeys: metrics.New(), skipped: make([]atomic.Int64, len(scenario.Steps)), executed: make([]atomic.Int64, len(scenario.Steps)), skippedCondition: make([]atomic.Int64, len(scenario.Steps)), controls: make([]controlStats, len(scenario.Controls))}
 		for range scenario.Steps {
 			stats.steps = append(stats.steps, metrics.New())
 		}
@@ -267,6 +267,9 @@ func Run(ctx context.Context, c config.Config, opts Options) (Result, error) {
 	}
 	if targetTelemetry != nil {
 		result.SchemaVersion = 5
+	}
+	if p.HasControlFlow() {
+		result.SchemaVersion = 6
 	}
 	var offset time.Duration
 	for i, phase := range p.Phases {

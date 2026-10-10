@@ -103,6 +103,35 @@ func TestCoordinatorDividesFleetRateAndCapacity(t *testing.T) {
 	}
 }
 
+func TestWorkersExecuteAndMergeNestedControls(t *testing.T) {
+	_, a := testWorker(t, "Flow A", testToken)
+	_, b := testWorker(t, "Flow B", testToken)
+	var attempts atomic.Int64
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { attempts.Add(1); fmt.Fprint(w, "ok") }))
+	defer target.Close()
+	count := 3
+	value := "1"
+	c := rateConfig(target.URL, a.URL, b.URL)
+	c.Rate = 4
+	c.Duration = "500ms"
+	c.MaxInFlight = 2
+	c.Scenarios = []config.Scenario{{Name: "Flow", Steps: []config.Step{{Name: "Repeat", Loop: &config.Loop{Count: &count, Steps: []config.Step{{Name: "Choose", If: &config.Branch{Condition: config.Condition{Variable: "journey_id", Value: &value}, Then: []config.Step{{Name: "First", URL: "/first"}}, Else: []config.Step{{Name: "Other", URL: "/other"}}}}}}}}}}
+	r, err := Run(context.Background(), c, testOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := c.Validate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = r.ValidateFlow(p); err != nil {
+		t.Fatal(err)
+	}
+	if !r.Passed || r.SchemaVersion != 6 || r.Completed != 6 || attempts.Load() != 6 || r.Journeys.Completed != 2 || r.Scenarios[0].Controls[0].Iterations != 6 || r.Scenarios[0].Controls[1].ConditionTrue != 3 || r.Scenarios[0].Controls[1].ConditionFalse != 3 {
+		t.Fatalf("%+v", r)
+	}
+}
+
 func TestJitteredJourneyMixRetainsGlobalIDsAndWeights(t *testing.T) {
 	_, a := testWorker(t, "A", testToken)
 	_, b := testWorker(t, "B", testToken)

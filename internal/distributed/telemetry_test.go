@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"gmeter/internal/config"
 	"gmeter/internal/telemetry"
 )
 
@@ -50,6 +51,36 @@ func TestOnlyCoordinatorCollectsTargetTelemetry(t *testing.T) {
 		}
 	}
 	if err := telemetry.ValidateSummary(c.Telemetry, r.Telemetry, r.StartedAt, r.TotalSeconds); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestFlowKeepsSchema6WithCoordinatorTelemetry(t *testing.T) {
+	_, worker := testWorker(t, "Flow telemetry", testToken)
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/metrics" {
+			fmt.Fprint(w, "active 1\n")
+			return
+		}
+		fmt.Fprint(w, "ok")
+	}))
+	defer target.Close()
+	count := 2
+	c := rateConfig(target.URL, worker.URL)
+	c.Rate = 1
+	c.Duration = "200ms"
+	c.MaxInFlight = 1
+	c.Scenarios = []config.Scenario{{Name: "Flow", Steps: []config.Step{{Name: "Loop", Loop: &config.Loop{Count: &count, Steps: []config.Step{{Name: "Request", URL: "/"}}}}}}}
+	c.Telemetry = &telemetry.Config{URL: target.URL + "/metrics", Interval: "250ms", Metrics: []telemetry.Metric{{Name: "active", Kind: "gauge"}}}
+	r, err := Run(context.Background(), c, testOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.SchemaVersion != 6 || r.Telemetry == nil || !r.Telemetry.Complete || r.Completed != 2 {
+		t.Fatalf("%+v", r)
+	}
+	p, _ := c.Validate()
+	if err = r.ValidateFlow(p); err != nil {
 		t.Fatal(err)
 	}
 }

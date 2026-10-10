@@ -43,19 +43,23 @@ func journeyMetrics(s metrics.Snapshot) JourneyMetrics {
 }
 
 type StepResult struct {
-	Name    string `json:"name"`
-	Method  string `json:"method"`
-	Skipped int64  `json:"skipped"`
+	Name             string `json:"name"`
+	Method           string `json:"method"`
+	Skipped          int64  `json:"skipped"`
+	Path             string `json:"path,omitempty"`
+	ExecutedJourneys int64  `json:"executed_journeys,omitempty"`
+	SkippedCondition int64  `json:"skipped_condition,omitempty"`
 	metrics.Snapshot
 }
 
 type ScenarioResult struct {
-	Name     string         `json:"name"`
-	Weight   int64          `json:"weight"`
-	Passed   bool           `json:"passed"`
-	Journeys JourneyMetrics `json:"journeys"`
-	Steps    []StepResult   `json:"steps"`
-	Checks   []Check        `json:"checks"`
+	Name     string          `json:"name"`
+	Weight   int64           `json:"weight"`
+	Passed   bool            `json:"passed"`
+	Journeys JourneyMetrics  `json:"journeys"`
+	Steps    []StepResult    `json:"steps"`
+	Checks   []Check         `json:"checks"`
+	Controls []ControlResult `json:"controls,omitempty"`
 }
 
 func (s ScenarioResult) requestCount() int64 {
@@ -67,9 +71,12 @@ func (s ScenarioResult) requestCount() int64 {
 }
 
 type scenarioStats struct {
-	journeys *metrics.Collector
-	steps    []*metrics.Collector
-	skipped  []atomic.Int64
+	journeys         *metrics.Collector
+	steps            []*metrics.Collector
+	skipped          []atomic.Int64
+	executed         []atomic.Int64
+	skippedCondition []atomic.Int64
+	controls         []controlStats
 }
 
 func (r *runner) newSession() *http.Client {
@@ -102,29 +109,16 @@ func (r *runner) journey(parent context.Context, scheduled time.Time, phase, sel
 		}
 	}
 	values["user_id"], values["iteration"], values["journey_id"] = strconv.FormatInt(user, 10), strconv.FormatInt(iteration, 10), strconv.FormatInt(id+1, 10)
-	category := ""
-	for i, step := range scenario.Steps {
-		if ctx.Err() != nil {
-			category = contextCategory(ctx)
-			r.skip(stats, i)
-			break
-		}
-		stepDue := time.Now()
-		if i == 0 {
-			stepDue = scheduled
-		}
-		if failed := r.step(ctx, client, step, values, stepDue, phase, stats.steps[i]); failed != "" {
-			category = "step_failed"
-			if ctx.Err() != nil {
-				category = contextCategory(ctx)
+	execution := flowExecution{runner: r, ctx: ctx, client: client, scenario: scenario, stats: stats, values: values, scheduled: scheduled, phase: phase, visited: make([]bool, len(scenario.Steps)), bypassed: make([]bool, len(scenario.Steps))}
+	category := execution.sequence(scenario.Flow)
+	for i, visited := range execution.visited {
+		if visited {
+			stats.executed[i].Add(1)
+		} else {
+			stats.skipped[i].Add(1)
+			if execution.bypassed[i] {
+				stats.skippedCondition[i].Add(1)
 			}
-			r.skip(stats, i+1)
-			break
-		}
-		if step.PauseDuration > 0 && !waitUntil(ctx, time.Now().Add(step.PauseDuration)) {
-			category = contextCategory(ctx)
-			r.skip(stats, i+1)
-			break
 		}
 	}
 	if category == "" && ctx.Err() != nil {
@@ -137,11 +131,6 @@ func (r *runner) journey(parent context.Context, scheduled time.Time, phase, sel
 	stats.journeys.Complete(sample)
 }
 
-func (r *runner) skip(stats *scenarioStats, first int) {
-	for i := first; i < len(stats.skipped); i++ {
-		stats.skipped[i].Add(1)
-	}
-}
 func contextCategory(ctx context.Context) string {
 	if errors.Is(ctx.Err(), context.Canceled) {
 		return "canceled"
@@ -389,7 +378,16 @@ func (r *Result) evaluateJourneys(p config.Plan, stats []*scenarioStats, elapsed
 	for i, scenario := range p.ScenarioPlans {
 		s := ScenarioResult{Name: scenario.Name, Weight: scenario.Weight, Passed: true, Journeys: journeyMetrics(stats[i].journeys.Snapshot(elapsed))}
 		for j, step := range scenario.Steps {
-			s.Steps = append(s.Steps, StepResult{Name: step.Name, Method: step.Method, Skipped: stats[i].skipped[j].Load(), Snapshot: stats[i].steps[j].Snapshot(elapsed)})
+			result := StepResult{Name: step.Name, Method: step.Method, Skipped: stats[i].skipped[j].Load(), Snapshot: stats[i].steps[j].Snapshot(elapsed)}
+			if p.HasControlFlow() {
+				result.Path = step.Path
+				result.ExecutedJourneys = stats[i].executed[j].Load()
+				result.SkippedCondition = stats[i].skippedCondition[j].Load()
+			}
+			s.Steps = append(s.Steps, result)
+		}
+		for j, control := range scenario.Controls {
+			s.Controls = append(s.Controls, ControlResult{Name: control.Name, Kind: control.Kind, Path: control.Path, ControlCounts: stats[i].controls[j].snapshot()})
 		}
 		s.Checks = journeyChecks("", s.Journeys, scenario.Checks)
 		for _, check := range s.Checks {

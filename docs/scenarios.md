@@ -2,9 +2,8 @@
 
 [Documentation](README.md) · [Project overview](../README.md)
 
-A scenario is an ordered sequence of HTTP steps. One scheduled arrival starts
-one journey through the chosen scenario. A successful journey completes every
-step and pause. The first failed step stops the journey; subsequent steps are
+A scenario is a sequence of HTTP requests, conditional branches, and bounded loops. One scheduled arrival starts
+one journey through the chosen scenario. A successful journey completes its selected paths, loop iterations, and pauses. The first failed step stops the journey; subsequent steps are
 recorded as skipped and send no requests.
 
 Try `examples/journey.json` against `gmeter-demo`. It logs in with two different
@@ -14,7 +13,7 @@ attempts** when all three steps succeed.
 
 In the dashboard, load **Authenticated checkout journeys** to edit the same
 configuration on the [Journey canvas](dashboard.md#edit-a-journey-on-the-flow-canvas).
-The canvas supports requests, pauses, checks, extraction, variables, data rows,
+The canvas supports nested branches and loops, requests, pauses, checks, extraction, variables, data rows,
 weights, and per-scenario pass criteria, with Advanced JSON available alongside it.
 
 ```sh
@@ -33,10 +32,10 @@ make build
 | `weight` | Positive integer, default 1; share of scheduled journey arrivals |
 | `variables` | Scenario variables overriding top-level `variables` |
 | `data` | Inline rows of string values; each row must have identical keys |
-| `steps` | Ordered list of 1–50 request steps |
+| `steps` | Ordered flow with up to 50 request/control nodes, including nested children |
 | `thresholds` | Acceptance limits for this scenario's journeys |
 
-At most 20 scenarios and 100 total steps are supported. The complete JSON
+At most 20 scenarios and 100 total request/control nodes are supported. The complete JSON
 configuration is capped at 1 MiB. The top-level URL is the base URL for step
 resolution. Top-level headers are inherited and can be overridden by a step;
 top-level method/body are for legacy single-request tests, so define methods
@@ -175,7 +174,7 @@ arrival uniformly within each fixed rate interval and preserves
 phase end. It is not a Poisson process. A seed reproduces intended times and
 selection; operating-system timing and target responses remain variable.
 
-The rate and concurrency cap apply to whole journeys, with sequential steps.
+The rate and concurrency cap apply to whole journeys, with requests executed sequentially along the selected paths.
 A full concurrency cap drops the arrival; it does not queue a journey. A late
 scheduler discards older due arrivals instead of issuing a catch-up burst.
 
@@ -190,13 +189,14 @@ Schema 2 preserves top-level HTTP request aggregates and adds `journeys`,
 - A failed template is a logical request attempt but sends no network request;
   the step records `template`. Other new errors are `assertion`, `extraction`,
   `capture_too_large`, and `cookie_limit`.
-- A skipped step is not a request attempt. Its `skipped` count refers only to
-  admitted journeys stopped by an earlier failure, cancellation, or deadline.
+- A skipped step is not a request attempt. Its `skipped` count refers to admitted journeys that never attempted that node.
+  With control flow this includes unchosen paths and zero-iteration loops, as
+  well as failure, cancellation, and deadlines.
 - Journey latency includes the sequence, pauses, and verification. Per-step
   latency ends at body completion or transport/template failure, before
   extraction and assertions. Journey scheduled latency includes admission delay.
 - For subsequent steps, request scheduled latency starts when that step becomes
-  eligible. Only the first step inherits the journey arrival time.
+  eligible. Only the first attempted HTTP request inherits the journey arrival time.
 - Every journey and its requests belong to the phase of journey admission.
   Per-scenario average throughput divides by the entire run's load window,
   not just time when that scenario happened to run.
@@ -221,3 +221,129 @@ can fail for missing samples. Scenario and global checks affect the CLI exit
 code. A journey timing out during a pause fails journey checks even if all its
 HTTP requests succeeded. Legacy single-request tests keep their original
 request metrics and thresholds.
+
+## Branches and loops
+
+Load **Branches and loops** in the dashboard or use `examples/flow.json` with
+`gmeter-demo`. Each of the 20 journeys logs in, visits its profile twice, then
+chooses a checkout path using its data row: **80 HTTP attempts** on a successful
+run. Conditions inside the loop distinguish the first and second visit.
+
+```sh
+./bin/gmeter validate -config examples/flow.json
+./bin/gmeter run -config examples/flow.json
+```
+
+A node contains exactly one HTTP request, `if`, or `loop`. Controls accept a
+`name` and their control object; request fields such as `url`, `headers`, and
+`pause` belong on child requests. Names must be unique across the entire journey.
+
+```json
+{
+  "name": "Choose checkout",
+  "if": {
+    "condition": {"variable": "item", "operator": "equals", "value": "coffee"},
+    "then": [{"name": "Coffee", "url": "/checkout/coffee"}],
+    "else": [{"name": "Other item", "url": "/checkout/other"}]
+  }
+}
+```
+
+The condition is evaluated on each visit. Only the selected path runs, then
+execution continues after the branch. Either path may be empty, but a branch
+must contain at least one child across its two paths. `else` is optional.
+
+| Operator | Behavior |
+| --- | --- |
+| `equals`, `not_equals` | Case-sensitive string comparison; `equals` is the default |
+| `contains`, `not_contains` | Literal, case-sensitive substring comparison |
+| `gt`, `gte`, `lt`, `lte` | Compare finite numbers; invalid numbers fail the journey |
+| `exists`, `not_exists` | Test whether a variable is present, including an empty string |
+
+Comparison `value` is a string, may be empty, and supports templates.
+Existence conditions omit `value`. Conditions are explicit comparisons;
+compound expressions, regular expressions, and scripts are not supported.
+Numeric comparisons use 64-bit floating-point; use string equality for exact
+identifiers or decimal values requiring full precision.
+Missing comparison inputs or invalid numeric operands fail with journey error
+`condition`, without creating a fake HTTP attempt or exposing variable values.
+
+```json
+{
+  "name": "Browse products",
+  "loop": {
+    "count": 3,
+    "index_variable": "product_number",
+    "steps": [{"name": "Read product", "url": "/products/{{product_number}}"}]
+  }
+}
+```
+
+A fixed loop runs its nonempty body `count` times (1–1000). The optional
+`index_variable` holds the current iteration starting at 1, only inside the
+body. Nested loops may use the same name: the enclosing value is restored on
+exit. Reserved engine names cannot be used as counters. Extractions other than
+the counter remain available after the body. Each iteration resets the counter,
+including when a child extraction overwrote it.
+
+Use `while` instead of `count` to repeat until a response changes a variable:
+
+```json
+{
+  "name": "Poll until ready",
+  "loop": {
+    "while": {"variable": "ready", "operator": "not_equals", "value": "true"},
+    "max_iterations": 10,
+    "steps": [{
+      "name": "Read status", "url": "/status",
+      "extract": {"ready": {"json_pointer": "/ready"}}, "pause": "100ms"
+    }]
+  }
+}
+```
+
+Initialize `ready` before this node. The condition is checked before each
+iteration, so the body may run zero times. `max_iterations` (1–1000) is required.
+After the last permitted iteration the condition is checked again; if still
+true, the journey fails with `loop_limit`. There is no silent successful
+truncation. A request, assertion, condition, deadline, or cancellation failure
+stops all enclosing controls and the journey. `journey_timeout` bounds the
+complete flow. No retries or parallel branches are implied.
+
+Validation checks variable availability on every possible path. A variable
+extracted on only one branch cannot be used after the join unless already
+defined. Extractions in fixed positive-count loops can be used afterward;
+new values from a while body cannot, because that body may never run. An
+`exists` guard permits its variable in the True path; `not_exists` permits it
+in the False path. The loop counter is available inside its body, not in its
+initial while condition unless it was already defined.
+
+Limits are 8 nesting levels and 10,000 worst-case node executions per journey,
+including requests and controls. Validation rejects excessive nested products
+before any traffic. Metrics storage scales with static nodes, not iterations.
+
+### Flow measurements and compatibility
+
+Flows with any branch or loop use **result schema 6**, locally, on workers,
+and with telemetry. Sequential tests retain schemas 3/4/5. Earlier configuration
+files continue to work, and dashboard imports accept schemas 2–6. Run current
+binaries on all workers; older binaries reject the new configuration fields.
+
+For each request node in schema 6:
+
+- `started` / `completed` count attempts, including repeated loop executions.
+- `executed_journeys` counts distinct admitted journeys that attempted it.
+- `skipped` counts admitted journeys that never attempted it.
+- `executed_journeys + skipped = scenario.journeys.started` after drain.
+- `skipped_condition` is the subset of skipped journeys where an unchosen path
+  or zero-iteration body bypassed the node at least once. A node visited later
+  in the same journey counts as executed, not skipped. Other skipped journeys
+  stopped before reaching it. These counts are not a per-iteration trace.
+
+Controls have stable source `path`, `name`, and `kind` identities and bounded
+aggregate counters: `entered`, `completed`, `failed`, `condition_true`,
+`condition_false`, `iterations` (body starts, including failed iterations), and
+`condition_errors`. An enclosing control fails when a child fails. Fixed loops
+have zero condition counters; while loops include their final condition check.
+Controls have no HTTP latency. Journey errors can occur with zero HTTP failures,
+for example an exhausted while limit. Request and journey criteria both matter.

@@ -473,8 +473,8 @@ function renderResults(result) {
   $('scenario-results').replaceChildren(...(result.scenarios || []).map(s => {
     const section = node('div', undefined, 'step-section');
     section.append(node('h3', s.name), node('p', `${count(s.journeys.completed)} journeys · ${fmt(s.journeys.error_percent, 2)}% errors · ${s.journeys.latency.samples ? fmt(s.journeys.latency.p95_ms) + ' ms p95' : 'no latency samples'} · ${s.checks?.length ? (s.passed ? 'checks passed' : 'checks failed') : 'no scenario checks'}`));
-    const rows = s.steps.map(step => [step.name, step.method, count(step.completed), count(step.skipped), fmt(step.error_percent, 2) + '%', step.latency.samples ? fmt(step.latency.p95_ms) + ' ms' : '—']);
-    const wrap = node('div', undefined, 'table-wrap'); wrap.append(makeTable(['Step', 'Method', 'Completed', 'Skipped', 'Errors', 'p95'], rows)); section.append(wrap);
+    const rows = s.steps.map(step => [step.name, step.method, count(step.completed), count(step.skipped) + (step.skipped_condition ? ` (${count(step.skipped_condition)} conditional)` : ''), step.completed ? fmt(step.error_percent, 2) + '%' : '—', step.latency.samples ? fmt(step.latency.p95_ms) + ' ms' : '—']);
+    const wrap = node('div', undefined, 'table-wrap'); wrap.append(makeTable(['Step', 'Method', 'Attempts', 'Skipped journeys', 'Errors', 'p95'], rows)); section.append(wrap);
     if (s.checks?.length) section.append(...s.checks.map(c => node('span', `${c.passed ? '✓' : '×'} ${c.name.replaceAll('_', ' ')} · ${fmt(c.actual, 2)} / ${fmt(c.limit, 2)} ${c.unit}`, `check-item${c.passed ? '' : ' bad'}`)));
     return section;
   }));

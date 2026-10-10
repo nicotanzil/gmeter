@@ -43,9 +43,13 @@ run history live in `.gmeter/` by default.
 
 For a multi-step workflow, load **Authenticated checkout journeys** to open the
 **Journey canvas**. Edit requests and response checks, trace extracted variables,
-and reorder steps visually. See the [canvas guide](docs/dashboard.md#edit-a-journey-on-the-flow-canvas).
+reorder steps, and build executable nested branches and loops visually. See the [canvas guide](docs/dashboard.md#edit-a-journey-on-the-flow-canvas).
 
 ![Journey canvas with execution order, extracted-data links, and a request inspector](docs/images/journey-canvas.png)
+
+Load **Branches and loops** to explore a nested example. [Flow syntax and limits](docs/scenarios.md#branches-and-loops).
+
+![Executable branches and loops on the journey canvas](docs/images/journey-flow.png)
 
 Prefer the CLI? With the demo still running:
 
@@ -91,8 +95,8 @@ they are not benchmarks. [Screenshot capture notes](docs/images/README.md).
 | --- | --- |
 | HTTP workloads | HTTP/1.1 and HTTPS with HTTP/2 negotiation; methods, headers, bodies, status checks, pooled connections |
 | Traffic models | Concurrent users, fixed arrival rate, sequential rate phases, zero-rate pauses, seeded jitter |
-| Application journeys | Ordered steps, isolated cookies, inline data, variables, extraction, assertions, weighted scenario mixes |
-| Journey canvas | Visual request editing and reordering, dependency links, pauses, undo, sequence preview, and final step measurements |
+| Application journeys | Nested if/else, fixed-count and bounded while loops, isolated cookies, inline data, variables, extraction, assertions, weighted scenario mixes |
+| Journey canvas | Visual request/control editing, path changes, dependency links, pauses, undo, structure preview, and observed request/decision/iteration counts |
 | Acceptance checks | Request and journey latency, error rates, missed demand, minimum started throughput |
 | Authoring | Guided builder, starter configurations, Advanced JSON, saved scenarios, first-test guide |
 | Results | Live charts, history, two-run comparison, JSON/HTML reports, portable run bundles |
