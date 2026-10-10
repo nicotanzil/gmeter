@@ -9,6 +9,15 @@ const fmt = (value, digits = 1) => Number(value || 0).toLocaleString(undefined, 
 const count = value => Number(value || 0).toLocaleString();
 const active = run => run && ['running', 'stopping'].includes(run.status);
 const node = (tag, text, className) => { const e = document.createElement(tag); if (text !== undefined) e.textContent = text; if (className) e.className = className; return e; };
+const builderGrid = $('builder-settings'), editorPanel = builderGrid.querySelector('.editor-panel');
+const builderAside = builderGrid.querySelector('.build-aside'), planPreview = builderAside.querySelector('.plan-preview');
+const stackedBuilder = window.matchMedia('(max-width:1159px)');
+function placePlanPreview() {
+  if (stackedBuilder.matches && planPreview.parentElement !== builderGrid) builderGrid.insertBefore(planPreview, editorPanel);
+  if (!stackedBuilder.matches && planPreview.parentElement !== builderAside) builderAside.prepend(planPreview);
+}
+stackedBuilder.addEventListener('change', placePlanPreview);
+placePlanPreview();
 
 async function api(path, method = 'GET', body) {
   const options = {method, headers: {'X-Gmeter-Token': token}};
@@ -44,6 +53,12 @@ function showBuilderTab(tab) {
 }
 $('builder-settings-tab').addEventListener('click', () => showBuilderTab('settings'));
 $('builder-journey-tab').addEventListener('click', () => showBuilderTab('journey'));
+$('plan-mobile-toggle').addEventListener('click', () => {
+  const expanded = $('plan-mobile-toggle').getAttribute('aria-expanded') !== 'true';
+  $('plan-mobile-toggle').setAttribute('aria-expanded', String(expanded));
+  $('plan-mobile-toggle').textContent = expanded ? 'Hide full summary ▴' : 'Show full summary ▾';
+  document.querySelector('.plan-preview').classList.toggle('expanded', expanded);
+});
 function showView(next) {
   view = next; $('notice').hidden = true;
   for (const name of ['build', 'live', 'history', 'guide', 'coverage']) $('view-' + name).hidden = name !== next;
@@ -108,6 +123,7 @@ function syncForm(c, replaceJourneyDraft = false) {
   $('phase-summary').hidden = !stages; $('single-phase').hidden = !stages;
   $('phase-summary').replaceChildren(...(c.stages || []).map(s => node('span', `${s.name || 'Phase'} · ${s.rate}/s · ${s.duration}`, 'phase-chip')));
   $('builder-workload-label').textContent = journey ? `${c.scenarios.length} journey(s)` : 'Single request';
+  updateInlineHints();
   journeyEditor.load(c, replaceJourneyDraft);
 }
 
@@ -155,7 +171,7 @@ function updateBuilder() {
     const c = readEditor(true);
     for (const key of ['name', 'url', 'method', 'duration', 'timeout']) c[key] = $(key).value;
     for (const [id,key] of [['rate','rate'],['vus','vus'],['capacity','max_in_flight']]) {
-      if (!$(id).value.trim() || !Number.isFinite(Number($(id).value))) throw new Error('Enter a number for ' + $(id).parentElement.textContent.trim() + '.');
+      if (!$(id).value.trim() || !Number.isFinite(Number($(id).value))) throw new Error('Enter a number for ' + {rate:'offered rate',vus:'concurrent users',capacity:'concurrency cap'}[id] + '.');
       c[key] = Number($(id).value);
     }
     c.diagnostics = $('diagnostics').value === 'true'; c.insecure = $('insecure').checked;
@@ -197,6 +213,7 @@ function updateBuilder() {
     journeyEditor.load(c);
     $('tls-warning').hidden = !c.insecure; updatePreview(c); validateMessage('Configuration changed. Validate or start a run.');
   } catch (e) { builderFormError = e.message; validateMessage(builderFormError, 'bad'); $('plan-preview').replaceChildren(node('p', 'Fix the configuration before running.', 'helper')); }
+  finally { updateInlineHints(); }
 }
 function durationSeconds(value) {
   // Matches the positive durations accepted by Go, including compound units.
@@ -205,11 +222,29 @@ function durationSeconds(value) {
   while (rest) { const part = /^(\d+(?:\.\d*)?|\.\d+)(ns|us|µs|μs|ms|s|m|h)/.exec(rest); if (!part) return null; total += Number(part[1])*units[part[2]]; rest = rest.slice(part[0].length); }
   return total > 0 ? total : null;
 }
+function updateInlineHints() {
+  const duration = $('duration');
+  const hints = [
+    ['duration', !duration.disabled && durationSeconds(duration.value) === null ? 'Enter a positive duration, such as 10s or 2m.' : ''],
+    ['threshold-p95', $('threshold-p95').value.trim() && durationSeconds($('threshold-p95').value.trim()) === null ? 'Use a positive duration, such as 200ms.' : ''],
+    ...['errors','drops','rps'].map(id => {
+      const input = $('threshold-' + id);
+      return ['threshold-' + id, (input.validity.badInput || (input.value.trim() && !input.validity.valid)) ? id === 'rps' ? 'Enter a number of at least 0.' : 'Enter a percentage from 0 to 100.' : ''];
+    })
+  ];
+  for (const [id, message] of hints) {
+    const input = $(id), error = $(id + '-error');
+    error.textContent = message;
+    error.hidden = !message;
+    input.setAttribute('aria-invalid', String(!!message));
+  }
+}
 function updatePreview(c) {
   $('phase-summary').replaceChildren(...(c.stages || []).map(s => node('span', `${s.name || 'Phase'} · ${s.rate}/s · ${s.duration}`, 'phase-chip')));
   const journey = !!c.scenarios?.length, unit = journey ? 'journeys' : 'requests';
   const seconds = c.stages?.length ? c.stages.reduce((sum,p) => { const d=durationSeconds(p.duration); return sum === null || d === null ? null : sum+d; }, 0) : durationSeconds(c.duration);
   const planned = c.stages?.length ? c.stages.reduce((sum,p) => { const d=durationSeconds(p.duration); return sum === null || d === null ? null : sum+Math.ceil(d*p.rate); },0) : seconds === null ? null : Math.ceil(seconds*c.rate);
+  $('plan-compact').textContent = `${journey ? c.scenarios.length + ' ' + (c.scenarios.length === 1 ? 'journey' : 'journeys') : c.method || 'GET'} ${c.url || 'Choose a target'} · ${c.mode === 'rate' ? (c.stages?.length ? c.stages.length + ' phases' : c.rate + ' ' + unit + '/s') : c.vus + ' users'} · ${seconds === null ? 'set duration' : fmt(seconds) + 's'}${planned !== null && c.mode === 'rate' ? ' · ' + count(planned) + ' planned' : ''}`;
   const rows = [c.scenarios?.length ? `${c.scenarios.length} journey scenario(s)` : `${c.method || 'GET'} request`, c.url || 'Choose a target URL',
     c.mode === 'rate' ? `${c.stages?.length ? c.stages.length+' phases' : c.rate+' '+unit+'/s'} · cap ${c.max_in_flight} concurrent ${unit}` : `${c.vus} concurrent users`,
     seconds === null ? 'Enter a valid load duration' : `${fmt(seconds)}s load window`,
@@ -217,6 +252,19 @@ function updatePreview(c) {
     c.workers?.length ? `Run on ${c.workers.length} workers` : 'Run on this machine'];
   if (c.insecure) rows.push('HTTPS verification disabled');
   $('plan-preview').replaceChildren(...rows.map((text,i) => node('p', text, i===1 ? 'preview-target' : '')));
+  const checks = node('div', undefined, 'preview-checks'), title = node('h3', 'Pass criteria');
+  checks.append(title);
+  const enabled = value => value !== null && value !== undefined && String(value).trim() !== '';
+  const limits = c.thresholds || {}, values = [
+    [limits.p95, value => `Request p95 ≤ ${value}`],
+    [limits.max_error_percent, value => `Request errors ≤ ${value}%`],
+    [limits.max_drop_percent, value => `Missed arrivals ≤ ${value}%`],
+    [limits.min_started_rps, value => `Started HTTP requests ≥ ${value}/s`]
+  ];
+  const list = node('div', undefined, 'preview-check-list');
+  for (const [value, label] of values) if (enabled(value)) list.append(node('span', label(value)));
+  if (!list.childElementCount) list.append(node('p', 'No pass criteria enabled.', 'helper'));
+  checks.append(list); $('plan-preview').append(checks);
 }
 for (const id of ['name','url','method','duration','timeout','rate','vus','capacity','distribution','diagnostics','workers','body','success-statuses','insecure','think-time','threshold-p95','threshold-errors','threshold-drops','threshold-rps']) $(id).addEventListener('input', updateBuilder);
 $('add-header').addEventListener('click', () => { addHeaderRow(); $('header-rows').lastElementChild.querySelector('input').focus(); });

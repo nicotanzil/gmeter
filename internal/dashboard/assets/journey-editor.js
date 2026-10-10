@@ -21,8 +21,15 @@ globalThis.GmeterJourneyEditor = (() => {
     let config={}, si=0, selected=0, tab=readonly?'results':'request', history=[], errors=new Map(), internal=false, report=null, reportID='', dragging=null;
     let zoom=1, pan={x:0,y:0}, autoFit=true, dataFlow=false, preview=null, world=null, lastWidth=0, pendingFrame=0;
     root.classList.add('je');
-    root.innerHTML='<div class="je-heading"><div><div class="eyebrow">FOLLOW THE FLOW</div><h2></h2><p class="je-subtitle"></p></div><div class="je-actions" data-actions></div></div><div class="je-guide" hidden></div><div class="je-message" role="status" aria-live="polite" hidden></div><div class="je-empty" hidden></div><div class="je-workspace"><aside class="je-library" aria-label="Journey selection"></aside><section class="je-center" aria-label="Journey flow diagram"><div class="je-toolbar"></div><div class="je-viewport" aria-label="Pannable journey diagram"><div class="je-stage"></div></div><div class="je-legend"></div><div class="je-preview" role="status" hidden></div></section><aside class="je-inspector" aria-label="Journey inspector"></aside></div><div class="je-footer"></div>';
+    root.innerHTML='<div class="je-heading"><div><div class="eyebrow">FOLLOW THE FLOW</div><h2></h2><p class="je-subtitle"></p></div><div class="je-actions" data-actions></div></div><div class="je-guide" hidden></div><div class="je-message" role="status" aria-live="polite" hidden></div><div class="je-empty" hidden></div><div class="je-workspace" data-mobile-panel="canvas"><aside class="je-library" aria-label="Journey selection"></aside><div class="je-mobile-tabs" role="group" aria-label="Journey editor panel"><button type="button" data-panel="canvas" aria-pressed="true">Canvas</button><button type="button" data-panel="inspector" aria-pressed="false">Inspector</button></div><section class="je-center" aria-label="Journey flow diagram"><div class="je-toolbar"></div><div class="je-viewport" aria-label="Pannable journey diagram"><div class="je-stage"></div></div><div class="je-legend"></div><div class="je-preview" role="status" hidden></div></section><aside class="je-inspector" aria-label="Journey inspector"></aside></div><div class="je-footer"></div>';
     const q = name => root.querySelector(name), viewport=q('.je-viewport'), stage=q('.je-stage');
+    function mobilePanel(panel) {
+      q('.je-workspace').dataset.mobilePanel=panel;
+      q('.je-mobile-tabs [data-panel="canvas"]').setAttribute('aria-pressed',panel==='canvas');
+      q('.je-mobile-tabs [data-panel="inspector"]').setAttribute('aria-pressed',panel==='inspector');
+    }
+    q('.je-mobile-tabs [data-panel="canvas"]').addEventListener('click',()=>mobilePanel('canvas'));
+    q('.je-mobile-tabs [data-panel="inspector"]').addEventListener('click',()=>mobilePanel('inspector'));
     q('h2').textContent=readonly?'Journey results':'Journey canvas';
     q('.je-subtitle').textContent=readonly?'Observed HTTP attempts and skipped steps from this run.':'Select a node to edit requests, branch conditions, or loop limits.';
     const guide=q('.je-guide');
@@ -62,6 +69,7 @@ globalThis.GmeterJourneyEditor = (() => {
     function select(index) {
       if(errors.size){message('Correct the unfinished inspector fields before selecting another request.',true);return;}
       selected=index;preview=null;autoFit=false;render();centerSelected();
+      if(window.matchMedia?.('(max-width:700px)').matches)mobilePanel('inspector');
     }
     function render(keepInspector=false) {
       const c=current(), empty=!config.scenarios?.length;

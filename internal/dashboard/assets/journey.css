@@ -64,3 +64,14 @@
 .je-node[data-kind=branch][aria-pressed=true],.je-node[data-kind=loop][aria-pressed=true]{border-color:#168b72}
 .je-edge-label{font:10px ui-sans-serif,system-ui;fill:#536e64;paint-order:stroke;stroke:#f6f9f8;stroke-width:5px;stroke-linejoin:round}
 .je-outline-step .je-lane{font-size:8px;color:#74877d;margin-left:auto;flex-shrink:0}.je-child-actions{display:flex;gap:3px;flex-wrap:wrap;align-items:center;border:1px solid var(--line);padding:6px;border-radius:6px;margin-bottom:8px}.je-child-actions strong{font-size:10px;padding:4px}
+
+/* On narrow screens, keep the real diagram and inspector one tap apart. */
+.je-mobile-tabs{display:none}
+@media(max-width:700px){
+  .je-mobile-tabs{display:flex;grid-column:1/-1;padding:10px 12px;background:#fff;border-bottom:1px solid var(--line)}
+  .je-mobile-tabs button{flex:1;min-height:39px;border:1px solid var(--line);background:#fff;color:var(--muted);font-size:13px;font-weight:600}
+  .je-mobile-tabs button:first-child{border-radius:7px 0 0 7px}.je-mobile-tabs button:last-child{border-radius:0 7px 7px 0}
+  .je-mobile-tabs button[aria-pressed=true]{background:#e5f4ee;color:#075f56;border-color:#8fcabd}
+  .je-workspace[data-mobile-panel=canvas] .je-inspector,.je-workspace[data-mobile-panel=inspector] .je-center{display:none}
+  .je-workspace[data-mobile-panel=inspector] .je-inspector{border-top:0;min-height:350px}
+}
