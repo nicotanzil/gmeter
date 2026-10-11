@@ -9,6 +9,7 @@ test: test-ui
 	go test -race ./...
 
 test-ui:
+	$(NODE) --check internal/dashboard/assets/theme.js
 	$(NODE) --check internal/dashboard/assets/app.js
 	$(NODE) --check internal/dashboard/assets/journey-editor.js
 	$(NODE) --test internal/dashboard/test/*.test.cjs

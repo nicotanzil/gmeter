@@ -62,7 +62,13 @@ $('plan-mobile-toggle').addEventListener('click', () => {
 function showView(next) {
   view = next; $('notice').hidden = true;
   for (const name of ['build', 'live', 'history', 'guide', 'coverage']) $('view-' + name).hidden = name !== next;
-  for (const e of document.querySelectorAll('.nav')) e.classList.toggle('active', e.dataset.view === next);
+  for (const e of document.querySelectorAll('.nav')) {
+    const selected = e.dataset.view === next;
+    e.classList.toggle('active', selected);
+    if (selected) e.setAttribute('aria-current', 'page'); else e.removeAttribute('aria-current');
+  }
+  $('nav-more').classList.toggle('active', next === 'guide' || next === 'coverage');
+  $('nav-more').open = false;
   window.scrollTo(0, 0);
   if (next === 'history') refresh().catch(e => notice(e.message, true));
   if (next === 'live' && current) requestAnimationFrame(drawCharts);
@@ -70,6 +76,8 @@ function showView(next) {
   if (next === 'live' && !$('run-journey-canvas').hidden) runJourneyEditor.show();
 }
 for (const e of document.querySelectorAll('[data-view]')) e.addEventListener('click', () => showView(e.dataset.view));
+document.addEventListener('click', e => { if (!$('nav-more').contains(e.target)) $('nav-more').open = false; });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') $('nav-more').open = false; });
 
 function readEditor(ignoreTelemetryError = false) {
   if (builderFormError&&!ignoreTelemetryError) throw new Error(builderFormError);
@@ -110,6 +118,7 @@ function syncForm(c, replaceJourneyDraft = false) {
   $('journey-builder-note').hidden = !journey; $('journey-checks-note').hidden = !journey;
   $('model-help').textContent = rateMode ? 'New work arrives at your chosen rate, even when the server slows down.' : 'Each user waits for its response, then repeats. Slower responses reduce request throughput.';
   $('staged-field').hidden = !rateMode; $('staged').checked = stages; $('phase-editor').hidden = !stages;
+  $('traffic-options').open = stages;
   renderHeaderRows(c.headers || {}); renderStageRows(c.stages || []); updatePreview(c);
   $('diagnostics').value = c.diagnostics === false ? 'false' : 'true';
   $('workers').value = (c.workers || []).join('\n');
@@ -212,7 +221,7 @@ function updateBuilder() {
     builderFormError = ''; $('config-json').value = JSON.stringify(c, null, 2);
     journeyEditor.load(c);
     $('tls-warning').hidden = !c.insecure; updatePreview(c); validateMessage('Configuration changed. Validate or start a run.');
-  } catch (e) { builderFormError = e.message; validateMessage(builderFormError, 'bad'); $('plan-preview').replaceChildren(node('p', 'Fix the configuration before running.', 'helper')); }
+  } catch (e) { builderFormError = e.message; validateMessage(builderFormError, 'bad'); $('plan-preview').replaceChildren(node('p', 'Fix the configuration before running.', 'helper')); $('plan-compact').textContent = 'Fix the configuration before running'; }
   finally { updateInlineHints(); }
 }
 function durationSeconds(value) {
@@ -244,7 +253,7 @@ function updatePreview(c) {
   const journey = !!c.scenarios?.length, unit = journey ? 'journeys' : 'requests';
   const seconds = c.stages?.length ? c.stages.reduce((sum,p) => { const d=durationSeconds(p.duration); return sum === null || d === null ? null : sum+d; }, 0) : durationSeconds(c.duration);
   const planned = c.stages?.length ? c.stages.reduce((sum,p) => { const d=durationSeconds(p.duration); return sum === null || d === null ? null : sum+Math.ceil(d*p.rate); },0) : seconds === null ? null : Math.ceil(seconds*c.rate);
-  $('plan-compact').textContent = `${journey ? c.scenarios.length + ' ' + (c.scenarios.length === 1 ? 'journey' : 'journeys') : c.method || 'GET'} ${c.url || 'Choose a target'} · ${c.mode === 'rate' ? (c.stages?.length ? c.stages.length + ' phases' : c.rate + ' ' + unit + '/s') : c.vus + ' users'} · ${seconds === null ? 'set duration' : fmt(seconds) + 's'}${planned !== null && c.mode === 'rate' ? ' · ' + count(planned) + ' planned' : ''}`;
+  $('plan-compact').textContent = `${journey ? c.scenarios.length + ' ' + (c.scenarios.length === 1 ? 'journey' : 'journeys') : c.method || 'GET'} · ${c.mode === 'rate' ? (c.stages?.length ? c.stages.length + ' phases' : c.rate + ' ' + unit + '/s') : c.vus + ' users'} · ${seconds === null ? 'set duration' : fmt(seconds) + 's'}${planned !== null && c.mode === 'rate' ? ' · ' + count(planned) + ' planned' : ''}`;
   const rows = [c.scenarios?.length ? `${c.scenarios.length} journey scenario(s)` : `${c.method || 'GET'} request`, c.url || 'Choose a target URL',
     c.mode === 'rate' ? `${c.stages?.length ? c.stages.length+' phases' : c.rate+' '+unit+'/s'} · cap ${c.max_in_flight} concurrent ${unit}` : `${c.vus} concurrent users`,
     seconds === null ? 'Enter a valid load duration' : `${fmt(seconds)}s load window`,
@@ -560,6 +569,9 @@ function drawChart(id, series, xEnd, fixedMax, xStart = 0, signed = false) {
   if (!width) return;
   const ratio = window.devicePixelRatio || 1; canvas.width = Math.round(width * ratio); canvas.height = Math.round(height * ratio);
   const ctx = canvas.getContext('2d'); ctx.scale(ratio, ratio);
+  const theme = getComputedStyle(document.documentElement);
+  const grid = theme.getPropertyValue('--chart-grid').trim();
+  const axis = theme.getPropertyValue('--chart-axis').trim();
   const left = 42, right = width - 12, top = 12, bottom = height - 25;
   const values=series.flatMap(s=>s.points.map(p=>p[1])).filter(v=>v!==null&&v!==undefined&&Number.isFinite(v));
   let min=signed?Math.min(0,...values)*1.15:0;
@@ -568,12 +580,12 @@ function drawChart(id, series, xEnd, fixedMax, xStart = 0, signed = false) {
   ctx.font = '10px -apple-system, sans-serif'; ctx.lineWidth = 1;
   for (let i = 0; i <= 4; i++) {
     const y = bottom - (bottom - top) * i / 4;
-    ctx.strokeStyle = '#eaf0f3'; ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(right, y); ctx.stroke();
-    ctx.fillStyle = '#84969e'; ctx.textAlign = 'right'; ctx.fillText(fmt(min+(max-min)*i/4,signed&&max-min<5?3:(max<5?1:0)), left - 8, y + 3);
+    ctx.strokeStyle = grid; ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(right, y); ctx.stroke();
+    ctx.fillStyle = axis; ctx.textAlign = 'right'; ctx.fillText(fmt(min+(max-min)*i/4,signed&&max-min<5?3:(max<5?1:0)), left - 8, y + 3);
   }
   xEnd = Math.max(xStart + 1, xEnd);
   const X = x => left + (x - xStart) / (xEnd - xStart) * (right - left), Y = y => bottom - ((signed?y:Math.max(0,y))-min)/(max-min)*(bottom-top);
-  ctx.fillStyle = '#84969e'; ctx.textAlign = 'center';
+  ctx.fillStyle = axis; ctx.textAlign = 'center';
   for (let i = 0; i <= 4; i++) { const x = xStart + (xEnd - xStart) * i / 4; ctx.fillText(fmt(x, xEnd > 10 ? 0 : 1) + 's', X(x), height - 6); }
   let visiblePoints = 0;
   for (const s of series) {
@@ -589,7 +601,7 @@ function drawChart(id, series, xEnd, fixedMax, xStart = 0, signed = false) {
     const available = s.points.filter(p => p[1] !== null && p[1] !== undefined);
     if (available.length === 1) { ctx.beginPath(); ctx.arc(X(available[0][0]), Y(available[0][1]), 3, 0, Math.PI * 2); ctx.fillStyle = s.color; ctx.fill(); }
   }
-  if (!visiblePoints) { ctx.fillStyle = '#8a9da4'; ctx.textAlign = 'center'; ctx.fillText('Waiting for measurements', (left + right) / 2, (top + bottom) / 2); }
+  if (!visiblePoints) { ctx.fillStyle = axis; ctx.textAlign = 'center'; ctx.fillText('Waiting for measurements', (left + right) / 2, (top + bottom) / 2); }
 }
 function duration(value) {
   const match = String(value).matchAll(/([0-9]*\.?[0-9]+)(ns|us|µs|μs|ms|s|m|h)/g);
@@ -597,6 +609,8 @@ function duration(value) {
 }
 function drawCharts() {
   if (!current || view !== 'live') return;
+  const theme = getComputedStyle(document.documentElement);
+  for (const name of Object.keys(colors)) colors[name] = theme.getPropertyValue(`--chart-${name}`).trim();
   const v = chartData(current), end = current.samples.at(-1)?.elapsed_seconds || 1, start = current.samples[0]?.elapsed_seconds || 0;
   const traffic = [{points: v.traffic, color: colors.teal}, {points: v.target, color: colors.gray, dashed: true, step: true}];
   if (current.workload === 'journeys') traffic.push({points: v.journeys, color: colors.blue});
@@ -624,6 +638,7 @@ function drawCharts() {
   }
   drawTelemetryChart();
 }
+window.addEventListener('gmeter:themechange', () => requestAnimationFrame(drawCharts));
 function drawTelemetryChart() {
   if (!current||view!=='live'||$('telemetry-panel').hidden) return;
   const points=telemetryPoints(current), index=Number($('telemetry-series').value)||0, m=current.result?.telemetry?.series[index]?.metric||current.config.telemetry.metrics[index];

@@ -23,9 +23,11 @@ available port. The default data directory is `.gmeter/` in the current director
 
 ![Guided test builder and planned workload preview](images/test-builder.jpg)
 
-For a first test, follow [getting started](getting-started.md) or open **User guide**
+For a first test, follow [getting started](getting-started.md) or open **Guide**
 in the app. See [operations](operations.md) for workspace ownership, retention,
 backup, and recovery, and [security](../SECURITY.md) for trust boundaries.
+Use **Theme** in the workspace sidebar to follow the system appearance or select
+Light or Dark. The choice is saved in this browser.
 
 ## Build and reuse tests
 
@@ -238,31 +240,34 @@ run. A fair comparison against JMeter remains a later milestone.
 
 ## Guided builder and coverage audit
 
-The builder groups configuration into **Request**, **Traffic**, and **Pass
-criteria**. Request settings expose header rows, a raw body, success status
-codes, and the [insecure HTTPS option](https.md). Traffic includes a phase editor
-with add/remove controls and zero-rate pauses. Blank pass criteria disable their
-checks; explicit zero remains a zero limit. The preview distinguishes planned
-arrivals from actual work and explains users-mode throughput. Optional worker,
-diagnostic, and telemetry settings fold away. Advanced JSON remains available
-for all CLI fields; the Journey canvas also edits steps, data, variables, and
-per-journey criteria.
+The builder keeps method, target, workload model, rate or users, duration,
+concurrency cap, and test name together under **Quick test**. **Request settings**
+expose header rows, a raw body, success status codes, and the
+[insecure HTTPS option](https.md). **Traffic options** hold phases, timeout,
+and arrival spacing; phases support add/remove controls and zero-rate pauses.
+Blank pass criteria disable their checks; explicit zero remains a zero limit.
+The preview distinguishes planned arrivals from actual work and explains
+users-mode throughput. On phones, the compact summary stays above Validate and
+Start run at the bottom of the screen. Optional worker, diagnostic, and
+telemetry settings fold away. Advanced JSON remains available for all CLI
+fields; the Journey canvas also edits steps, data, variables, and per-journey
+criteria.
 
 Invalid form drafts block validation, saving, export, and execution rather than
 using an older serialized configuration. Editing valid JSON repopulates the form.
 Run checks and downloads appear before diagnostic charts. Run history supports
 name/result search, and changing views clears stale status notices.
 
-**Feature coverage** is a searchable comparison against bundled JMeter 5.6.3,
+**Coverage** is a searchable comparison against bundled JMeter 5.6.3,
 with available, partial, and not-available families and official manual links.
 The [parity program](jmeter-parity.md) defines the backlog and completion gates.
 Backlog rows do not enable features.
 
 ## In-app user guide
 
-**User guide** is always available from the sidebar. It covers a first local test,
+**Guide** is in the sidebar on desktop and under **More** on phones. It covers a first local test,
 requests, traffic models, pass criteria, interpreting results, reusable workflows,
-and troubleshooting. Help links beside Request, Traffic, Pass criteria, Results,
+and troubleshooting. Help links in Quick test and beside Pass criteria, Results,
 and History open the relevant topic. Guide shortcuts return to the matching
 builder field while preserving its current draft.
 

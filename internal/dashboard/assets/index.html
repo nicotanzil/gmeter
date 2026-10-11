@@ -5,8 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="gmeter-token" content="{{.}}">
   <title>gmeter · Load testing workspace</title>
+  <script src="/theme.js"></script>
   <link rel="stylesheet" href="/style.css">
   <link rel="stylesheet" href="/journey.css">
+  <link rel="stylesheet" href="/theme.css">
   <script src="/journey-model.js" defer></script>
   <script src="/journey-editor.js" defer></script>
   <script src="/app.js" defer></script>
@@ -16,12 +18,14 @@
     <a class="brand" href="/" aria-label="gmeter home"><span class="brand-mark">g</span>gmeter<span class="version">0.1</span></a>
     <div class="nav-label">WORKSPACE</div>
     <nav aria-label="Workspace">
-      <button class="nav active" data-view="build"><span>⌘</span>Build a test</button>
-      <button class="nav" data-view="live"><span>◉</span>Live run<span id="live-dot" class="dot" hidden></span></button>
-      <button class="nav" data-view="history"><span>≡</span>Run history</button>
-      <button class="nav" data-view="guide"><span>?</span>User guide</button>
-      <button class="nav" data-view="coverage"><span>▤</span>Feature coverage</button>
+      <button class="nav active" data-view="build"><span aria-hidden="true">⌘</span>Build</button>
+      <button class="nav" data-view="live"><span aria-hidden="true">◉</span>Live<span id="live-dot" class="dot" hidden></span></button>
+      <button class="nav" data-view="history"><span aria-hidden="true">≡</span>History</button>
+      <button class="nav nav-extra" data-view="guide"><span aria-hidden="true">?</span>Guide</button>
+      <button class="nav nav-extra" data-view="coverage"><span aria-hidden="true">▤</span>Coverage</button>
+      <details id="nav-more" class="nav-more"><summary>More</summary><div class="nav-more-menu"><button class="nav" data-view="guide">Guide</button><button class="nav" data-view="coverage">Coverage</button></div></details>
     </nav>
+    <div class="theme-picker"><label for="theme-select">Theme</label><select id="theme-select" aria-label="Theme"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></div>
     <div class="sidebar-bottom"><span class="local-indicator"></span> Local workspace<p>Coordinated traffic. Clear measurements.</p></div>
   </aside>
   <main>
@@ -35,26 +39,26 @@
         <section class="panel editor-panel">
           <div class="panel-heading"><h2>Test configuration</h2><select id="starter" aria-label="Start from an example"><option value="">Start from an example…</option></select></div>
           <form id="config-form">
-            <fieldset class="builder-section"><legend><span class="step-number">1</span> Request</legend><p class="section-help">Choose the endpoint and the request you want to send. <button type="button" class="text-button contextual-help" data-guide-topic="guide-requests">Help with requests</button></p>
-              <label>Test name<input id="name" required maxlength="256" placeholder="Checkout capacity test"></label>
+            <fieldset class="builder-section quick-test"><legend><span class="step-number">1</span> Quick test</legend><p class="section-help">Set the target and load. <button type="button" class="text-button contextual-help" data-guide-topic="guide-requests">Request help</button><button type="button" class="text-button contextual-help" data-guide-topic="guide-traffic">Traffic help</button></p>
               <div class="request-line"><label id="method-field">Method<select id="method"><option>GET</option><option>POST</option><option>PUT</option><option>PATCH</option><option>DELETE</option><option>HEAD</option><option>OPTIONS</option></select></label><label>Target URL<input id="url" required type="url" placeholder="http://127.0.0.1:8787/work"><small id="url-hint">Full HTTP or HTTPS endpoint.</small></label></div>
               <div id="journey-builder-note" class="validation" hidden>This test uses journey steps. Open Journey canvas to edit requests, branches, loops, pauses, extractions, and assertions. Headers here apply to every step.</div>
-              <details id="request-settings"><summary>Request settings <span>Headers, body &amp; HTTPS</span></summary>
-                <div class="panel-heading"><h3>Headers</h3><button id="add-header" type="button" class="text-button">+ Add header</button></div><div id="header-rows"></div><p class="helper">Add Content-Type for JSON or form bodies. Header values may contain variables from Advanced JSON.</p>
-                <label id="body-field">Request body<textarea id="body" rows="4" spellcheck="false" placeholder='{"message":"hello"}'></textarea></label>
-                <label>Successful status codes<input id="success-statuses" placeholder="Default: all 2xx (e.g. 200, 201)"><small>Comma-separated HTTP codes. In journeys, steps can override this default.</small></label>
-                <label class="checkbox-label"><input id="insecure" type="checkbox"> Skip HTTPS certificate verification (insecure)</label><p class="helper">Allows self-signed, expired, and mismatched certificates for workload requests only. Worker and telemetry connections still verify HTTPS.</p>
-                <p id="tls-warning" class="security-note" hidden>TLS verification is disabled. Workload server identity will not be checked.</p>
-              </details>
-            </fieldset>
-            <fieldset class="builder-section"><legend><span class="step-number">2</span> Traffic</legend><p class="section-help">Decide how work arrives and how long the test runs. <button type="button" class="text-button contextual-help" data-guide-topic="guide-traffic">Help choosing traffic</button></p>
               <label>Workload model<select id="mode"><option value="rate">Fixed arrival rate</option><option value="users">Concurrent users</option></select><small id="model-help"></small></label>
               <div id="traffic-limits" class="form-grid three"><label id="rate-field"><span id="rate-label">Requests / second</span><span class="unit-input"><input id="rate" type="number" min="1" max="1000000" step="1"><span class="input-unit" aria-hidden="true">/s</span></span></label><label id="vus-field" hidden>Concurrent users<input id="vus" type="number" min="1" max="100000" step="1"></label><label id="duration-field">Load duration<input id="duration" placeholder="10s" aria-describedby="duration-hint"><small id="duration-hint">Use s, m, or h; for example 2m.</small><small id="duration-error" class="field-error" hidden></small><small id="stages-hint" hidden>Set each phase duration below.</small></label><label id="capacity-field">Concurrency cap<span class="unit-input"><input id="capacity" type="number" min="1" max="100000" step="1"><span class="input-unit">in flight</span></span><small>Missed arrivals are counted when this limit is full.</small></label></div>
-              <div id="staged-field"><label class="checkbox-label"><input id="staged" type="checkbox"> Use multiple traffic phases</label><div id="phase-editor" hidden><div id="stage-rows"></div><button id="add-stage" type="button" class="text-button">+ Add phase</button><button id="single-phase" type="button" class="text-button">Use a single rate</button><p class="helper">Phases run in order. A rate of 0 pauses new arrivals; admitted work can finish.</p></div></div>
-              <div id="phase-summary" class="phase-strip" hidden></div>
-              <div class="form-grid"><label>Request timeout<input id="timeout" placeholder="5s"></label><label id="distribution-field">Arrival spacing<select id="distribution"><option value="constant">Constant</option><option value="jitter">Seeded jitter</option></select></label><label id="think-field" hidden>Pause between iterations<input id="think-time" placeholder="0s"><small>Each user pauses after its request or journey.</small></label></div>
+              <label class="quick-test-name">Test name<input id="name" required maxlength="256" placeholder="Checkout capacity test"></label>
             </fieldset>
-            <fieldset class="builder-section"><legend><span class="step-number">3</span> Pass criteria</legend><p class="section-help">Set the limits that determine whether this run passes. Leave a field blank to disable its check. <button type="button" class="text-button contextual-help" data-guide-topic="guide-criteria">Help with pass criteria</button></p>
+            <div id="phase-summary" class="phase-strip" hidden></div>
+            <details id="request-settings"><summary>Request settings <span>Headers, body &amp; HTTPS</span></summary>
+              <div class="panel-heading"><h3>Headers</h3><button id="add-header" type="button" class="text-button">+ Add header</button></div><div id="header-rows"></div><p class="helper">Add Content-Type for JSON or form bodies. Header values may contain variables from Advanced JSON.</p>
+              <label id="body-field">Request body<textarea id="body" rows="4" spellcheck="false" placeholder='{"message":"hello"}'></textarea></label>
+              <label>Successful status codes<input id="success-statuses" placeholder="Default: all 2xx (e.g. 200, 201)"><small>Comma-separated HTTP codes. In journeys, steps can override this default.</small></label>
+              <label class="checkbox-label"><input id="insecure" type="checkbox"> Skip HTTPS certificate verification (insecure)</label><p class="helper">Allows self-signed, expired, and mismatched certificates for workload requests only. Worker and telemetry connections still verify HTTPS.</p>
+              <p id="tls-warning" class="security-note" hidden>TLS verification is disabled. Workload server identity will not be checked.</p>
+            </details>
+            <details id="traffic-options"><summary>Traffic options <span>Phases, timeout &amp; pacing</span></summary>
+              <div id="staged-field"><label class="checkbox-label"><input id="staged" type="checkbox"> Use multiple traffic phases</label><div id="phase-editor" hidden><div id="stage-rows"></div><button id="add-stage" type="button" class="text-button">+ Add phase</button><button id="single-phase" type="button" class="text-button">Use a single rate</button><p class="helper">Phases run in order. A rate of 0 pauses new arrivals; admitted work can finish.</p></div></div>
+              <div class="form-grid"><label>Request timeout<input id="timeout" placeholder="5s"></label><label id="distribution-field">Arrival spacing<select id="distribution"><option value="constant">Constant</option><option value="jitter">Seeded jitter</option></select></label><label id="think-field" hidden>Pause between iterations<input id="think-time" placeholder="0s"><small>Each user pauses after its request or journey.</small></label></div>
+            </details>
+            <fieldset class="builder-section"><legend><span class="step-number">2</span> Pass criteria</legend><p class="section-help">Set the limits that determine whether this run passes. Leave a field blank to disable its check. <button type="button" class="text-button contextual-help" data-guide-topic="guide-criteria">Help with pass criteria</button></p>
               <div class="form-grid"><label>Request p95 latency<input id="threshold-p95" placeholder="e.g. 200ms" aria-describedby="threshold-p95-hint"><small id="threshold-p95-hint">Use a duration such as 200ms or 1s.</small><small id="threshold-p95-error" class="field-error" hidden></small></label><label>Maximum request errors<span class="unit-input"><input id="threshold-errors" type="number" min="0" max="100" step="any" placeholder="Disabled"><span class="input-unit">%</span></span><small id="threshold-errors-error" class="field-error" hidden></small></label><label>Maximum missed arrivals<span class="unit-input"><input id="threshold-drops" type="number" min="0" max="100" step="any" placeholder="Disabled"><span class="input-unit">%</span></span><small id="threshold-drops-error" class="field-error" hidden></small></label><label>Minimum started HTTP requests / s<span class="unit-input"><input id="threshold-rps" type="number" min="0" step="any" placeholder="Disabled"><span class="input-unit" aria-hidden="true">/s</span></span><small id="threshold-rps-error" class="field-error" hidden></small></label></div>
               <p id="journey-checks-note" class="helper" hidden>These are request checks; missed arrivals refer to journeys. Per-journey checks are in Journey settings &amp; data; test-wide journey checks are in Advanced JSON.</p>
             </fieldset>
@@ -72,7 +76,7 @@
           </form>
         </section>
         <div class="build-aside">
-          <section class="panel plan-preview"><div class="eyebrow">BEFORE YOU RUN</div><h2>Your test at a glance</h2><button type="button" id="plan-mobile-toggle" aria-controls="plan-preview" aria-expanded="false">Show full summary ▾</button><p id="plan-compact" aria-live="polite"></p><div class="plan-launch-actions"><button type="button" id="validate" class="button secondary">Validate</button><button type="submit" form="config-form" id="start" class="button primary">Start run <span>→</span></button></div><div id="plan-preview" aria-live="polite"></div><div id="validation" class="validation" role="status">Validate your configuration before a run.</div><div class="plan-save-actions"><button type="button" id="save-scenario" class="button secondary">Save scenario</button><button type="button" id="export-config" class="icon-button" title="Export configuration JSON" aria-label="Export configuration JSON">↓ JSON</button></div><p class="helper">Validate checks the configuration without sending traffic.</p></section>
+          <section class="panel plan-preview"><div class="eyebrow">BEFORE YOU RUN</div><h2>Your test at a glance</h2><button type="button" id="plan-mobile-toggle" aria-controls="plan-preview" aria-expanded="false">Show full summary ▾</button><div class="plan-launch-actions"><p id="plan-compact" aria-live="polite"></p><button type="button" id="validate" class="button secondary">Validate</button><button type="submit" form="config-form" id="start" class="button primary">Start run <span>→</span></button></div><div id="plan-preview" aria-live="polite"></div><div id="validation" class="validation" role="status">Validate your configuration before a run.</div><div class="plan-save-actions"><button type="button" id="save-scenario" class="button secondary">Save scenario</button><button type="button" id="export-config" class="icon-button" title="Export configuration JSON" aria-label="Export configuration JSON">↓ JSON</button></div><p class="helper">Validate checks the configuration without sending traffic.</p></section>
           <section class="panel"><div class="panel-heading"><h2>Scenario library</h2><span id="library-count" class="count">0</span></div><div id="library" class="library-list"><div class="empty-small">Save a configuration to reuse it here.</div></div><button id="save-copy" class="text-button" hidden>Save editor as a new scenario</button></section>
           <section class="measurement-note"><div class="eyebrow">READ THE SIGNAL</div><h2>Offered traffic matters.</h2><p>Missed arrivals stay visible. A fast response time doesn’t mean the generator delivered your target load.</p><div class="note-rule"></div><p>Journey arrivals and HTTP attempts are measured separately. Assertions and dependent steps run through the same engine as the CLI.</p></section>
         </div>

@@ -152,3 +152,27 @@ main{margin-left:196px;padding:0 28px}.topbar{height:56px}.view{padding-top:23px
   .plan-preview h2{font-size:16px;margin:3px 0 2px}
 }
 @media(max-width:400px){#welcome-tip .welcome-actions{width:100%;margin:0}#view-build .page-heading>.button{white-space:normal}}
+
+/* The minimum setup path stays together; optional request and traffic controls follow it. */
+.nav-more{display:none}
+.quick-test .request-line{margin-bottom:12px}
+.quick-test #traffic-limits{margin-top:4px}
+.quick-test-name{padding-top:8px;border-top:1px solid var(--line)}
+#phase-summary:not([hidden]){margin:0 0 12px}
+#traffic-options{margin-bottom:14px}
+@media(max-width:760px){
+  .sidebar nav{position:relative;overflow:visible;gap:4px}
+  .sidebar nav>.nav{flex:1;min-width:0;margin:0;padding:8px 4px;font-size:11px}
+  .sidebar nav>.nav-extra{display:none}
+  .nav-more{display:block;flex:1;min-width:0;margin:0;padding:0;border:0}
+  .nav-more summary{display:block;list-style:none;text-align:center;border-radius:8px;padding:8px 4px;color:#a8c0c6;font-size:11px;font-weight:500;line-height:1.5}
+  .nav-more summary::-webkit-details-marker{display:none}
+  .nav-more summary:hover{background:#1d3b40}
+  .nav-more.active summary,.nav-more[open] summary{background:#25464a;color:#9ef0db}
+  .nav-more-menu{position:absolute;z-index:50;top:calc(100% + 5px);right:0;min-width:148px;padding:6px;background:var(--nav);border:1px solid #3c5d62;border-radius:9px;box-shadow:0 12px 26px #071b2366}
+  .nav-more-menu .nav{margin:0;width:100%;padding:10px 12px;font-size:12px}
+  .quick-test .section-help .contextual-help{display:inline-block;margin:0 0 0 8px}
+  .plan-launch-actions{flex-wrap:wrap}
+  #plan-compact{order:-1;flex:0 0 100%;min-width:0;margin:0;color:#3b5c62;font:11px/1.45 var(--font-mono)}
+  #view-build{padding-bottom:111px}
+}
