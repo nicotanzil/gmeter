@@ -10,7 +10,7 @@ import (
 	"gmeter/internal/metrics"
 )
 
-const userAgent = "gmeter/0.1.0"
+const userAgent = "gmeter/0.2.0"
 
 // A trace retains only pending timestamps. Events go directly to bounded
 // aggregate histograms; there are no per-response timing slices to retain.
