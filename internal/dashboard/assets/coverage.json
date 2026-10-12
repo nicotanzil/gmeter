@@ -546,11 +546,11 @@
       "id": "jmx",
       "name": "JMX plans, templates and migration",
       "group": "Authoring",
-      "status": "missing",
-      "detail": "Only gmeter JSON plans are accepted. No JMX parser, component mapping, round-trip support, or compatibility error inventory.",
+      "status": "partial",
+      "detail": "Guided JMeter 5.6.3 JMX review, limited duration-based HTTP conversion, property inputs, original source retention, and non-runnable migration drafts. Broader component mappings, JMX export, and cross-engine conformance remain open.",
       "stage": "4 \u00b7 Compatibility",
       "source": "https://jmeter.apache.org/usermanual/build-test-plan.html",
-      "evidence": "internal/config/config.go"
+      "evidence": "internal/jmx; internal/dashboard/jmx.go; docs/jmx-import.md"
     },
     {
       "id": "cli",

@@ -4,5 +4,5 @@ package examples
 
 import "embed"
 
-//go:embed *.json
+//go:embed *.json jmx/*.jmx
 var Files embed.FS

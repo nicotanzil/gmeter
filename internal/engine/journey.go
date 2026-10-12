@@ -80,6 +80,9 @@ type scenarioStats struct {
 }
 
 func (r *runner) newSession() *http.Client {
+	if r.plan.Cookies != nil && !*r.plan.Cookies {
+		return &http.Client{Transport: r.client.Transport, Timeout: r.client.Timeout, CheckRedirect: r.client.CheckRedirect}
+	}
 	jar, _ := cookiejar.New(nil)
 	// All scenario URLs are restricted to one origin. The key cap also bounds a
 	// long-lived user's cookie history, even if a target invents new cookie names.

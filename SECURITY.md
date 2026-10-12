@@ -42,6 +42,7 @@ planned; do not infer support from the control-plane CA flags.
 | Saved scenarios, editor JSON, workspace runs, run bundles | Supplied headers, bodies, data rows, variables, target URLs, and selected telemetry metadata |
 | Result JSON and HTML | Target URLs, scenario/step labels, measured errors, environment/resource metadata, and selected telemetry values |
 | Dashboard in the browser | Editable workload configuration and displayed results |
+| JMX migration drafts and imported saved scenarios | Retained original XML and explicitly supplied property values, including any credentials in the source |
 | Worker process | Workload configuration and current job results in memory |
 
 Result reports omit configured request headers and bodies. Individual response
@@ -63,6 +64,12 @@ userinfo is rejected. Review and sanitize artifacts before sharing them.
 Configuration parsing rejects unknown fields and trailing JSON, and validation
 sends no requests. A valid configuration can still target a sensitive or expensive
 endpoint when started. Inspect imported configurations before execution.
+
+[JMX analysis](docs/jmx-import.md) is bounded and rejects DTDs/external entities.
+It does not evaluate scripts, read referenced files or local JMeter properties,
+or contact targets. Unknown execution semantics block runnable conversion.
+Blocked drafts have no native configuration and remain outside the runnable
+Scenario library. Conversion reanalyzes the original XML on the server.
 
 Body limits, bounded histograms, bounded correlation/session data, worker leases,
 and parser limits constrain specific resources. They do not guarantee the

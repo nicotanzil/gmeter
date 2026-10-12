@@ -17,7 +17,7 @@ globalThis.GmeterJourneyEditor = (() => {
   }
   const svgEl = (tag, attrs={}) => { const n=document.createElementNS('http://www.w3.org/2000/svg',tag);for(const [k,v] of Object.entries(attrs))n.setAttribute(k,v);return n; };
   function create(root, options) {
-    const id=`journey-${++instance}`, readonly=!!options.readonly;
+    const id=`journey-${++instance}`, previewOnly=!!options.preview, readonly=!!options.readonly||previewOnly;
     let config={}, si=0, selected=0, tab=readonly?'results':'request', history=[], errors=new Map(), internal=false, report=null, reportID='', dragging=null;
     let zoom=1, pan={x:0,y:0}, autoFit=true, dataFlow=false, preview=null, world=null, lastWidth=0, pendingFrame=0;
     root.classList.add('je');
@@ -30,10 +30,11 @@ globalThis.GmeterJourneyEditor = (() => {
     }
     q('.je-mobile-tabs [data-panel="canvas"]').addEventListener('click',()=>mobilePanel('canvas'));
     q('.je-mobile-tabs [data-panel="inspector"]').addEventListener('click',()=>mobilePanel('inspector'));
-    q('h2').textContent=readonly?'Journey results':'Journey canvas';
-    q('.je-subtitle').textContent=readonly?'Observed HTTP attempts and skipped steps from this run.':'Select a node to edit requests, branch conditions, or loop limits.';
+    q('h2').textContent=previewOnly?'Imported journey preview':readonly?'Journey results':'Journey canvas';
+    q('.je-subtitle').textContent=previewOnly?'Inspect the mapped requests and loops. No workload traffic is sent.':readonly?'Observed HTTP attempts and skipped steps from this run.':'Select a node to edit requests, branch conditions, or loop limits.';
     const guide=q('.je-guide');
     guide.textContent='Solid arrows show execution order. Dotted links show extracted variables used later. Select a request for headers, body, checks, and extractions. Drag nodes to reorder or move between paths; the inspector also has Move up/down and Move to path controls. Drag the canvas to pan, or use Fit and zoom. A failed step stops the journey and skips later requests. Branches choose a True or False path using current variables. Loops repeat a body with a fixed count or a bounded while condition. Failed requests, invalid conditions, and exhausted while limits stop the journey.';
+    if(previewOnly)guide.textContent='Solid arrows show execution order. Select a request or loop to inspect its converted configuration. Drag the background to pan, or use Fit and zoom. This preview has no execution measurements or editing controls. Save the import and open it in the builder to modify or run the journey.';
     const actions=q('[data-actions]');
     actions.append(button('How this works',()=>{guide.hidden=!guide.hidden;},'je-button je-quiet'));
     if(!readonly) for(const [label,action,cls] of [['Test settings',options.settings,'je-button'],['Validate',()=>validate(),'je-button'],['Save scenario',()=>invoke(options.save),'je-button'],['Start run',()=>invoke(options.start),'je-button je-primary']]) actions.append(button(label,action,cls));
@@ -99,7 +100,7 @@ globalThis.GmeterJourneyEditor = (() => {
       const tools=el('div',undefined,'je-tools');tools.append(button('−',()=>zoomAt(zoom/1.2),'je-button je-icon'),el('span',`${Math.round(zoom*100)}%`,'je-zoom'),button('+',()=>zoomAt(zoom*1.2),'je-button je-icon'),button('Fit',fit,'je-button'),button('Full screen',()=>{if(document.fullscreenElement===root)document.exitFullscreen().catch(()=>{});else root.requestFullscreen?.().catch(()=>message('Full screen is unavailable in this browser.'));},'je-button'));
       tools.children[0].setAttribute('aria-label','Zoom out');tools.children[2].setAttribute('aria-label','Zoom in');bar.append(tools);
       const legend=q('.je-legend');legend.replaceChildren(el('span','— Execution order'),el('span',dataFlow?'┄ Extracted data · selected request':'Drag the background to pan'));
-      if(readonly)legend.append(el('span','Failures and skips are observed counts.'));
+      if(readonly)legend.append(el('span',previewOnly?'Structure preview · no execution measurements':'Failures and skips are observed counts.'));
       else {legend.append(button('Preview sequence',()=>{if(errors.size){message('Correct unfinished inspector fields first.',true);return;}preview={failed:null};render();},'je-link'));if(preview&&selected>=0&&!entries().some(n=>M.kind(n.step)!=='request'))legend.append(button('Preview failure here',()=>{preview={failed:selected};render();},'je-link'));}
     }
     function applyTransform() {stage.style.transform=`translate(${pan.x}px, ${pan.y}px) scale(${zoom})`;q('.je-zoom').textContent=`${Math.round(zoom*100)}%`;}
@@ -146,8 +147,8 @@ globalThis.GmeterJourneyEditor = (() => {
     function centerNode(index) {const p=world?.nodes[index];if(!p)return;const top=pan.y+p.y*zoom,bottom=top+p.height*zoom;if(top<0||bottom>viewport.clientHeight){pan={x:viewport.clientWidth/2-(p.x+world.nodeWidth/2)*zoom,y:viewport.clientHeight/2-(p.y+p.height/2)*zoom};autoFit=false;applyTransform();}}
     function renderFooter() {
       const footer=q('.je-footer'),issues=M.dependencies(config,si).steps.flatMap((s,i)=>s.missing.map(name=>`${M.stepName(entries()[i].step,i)} needs {{${name}}}`));footer.replaceChildren();
-      footer.append(el('span',readonly?`${report?.scenarios?.[si]?.journeys?.completed??0} completed journeys · per-step cards show HTTP measurements`:issues.length?`${issues.length} missing variable reference(s): ${issues.join('; ')}`:`${entries().length} flow nodes · ${totalSteps()} across this test`));footer.classList.toggle('je-bad',!readonly&&!!issues.length);
-      if(!readonly)footer.append(button('Undo',undo,'je-link'));footer.append(el('small',readonly?'Step p95 values cannot be added to get journey p95.':'Editing and previewing send no workload traffic.'));
+      footer.append(el('span',previewOnly?`${entries().length} mapped flow nodes · preview only`:readonly?`${report?.scenarios?.[si]?.journeys?.completed??0} completed journeys · per-step cards show HTTP measurements`:issues.length?`${issues.length} missing variable reference(s): ${issues.join('; ')}`:`${entries().length} flow nodes · ${totalSteps()} across this test`));footer.classList.toggle('je-bad',!readonly&&!!issues.length);
+      if(!readonly)footer.append(button('Undo',undo,'je-link'));footer.append(el('small',previewOnly?'Saving an import does not start a test.':readonly?'Step p95 values cannot be added to get journey p95.':'Editing and previewing send no workload traffic.'));
       if(!readonly)footer.querySelector('button').disabled=!history.length;
     }
     function field(container,label,value,apply,opts={}) {
@@ -169,6 +170,13 @@ globalThis.GmeterJourneyEditor = (() => {
     function renderInspector() {
       const inspector=q('.je-inspector');inspector.replaceChildren();
       const c=current();if(!c)return;
+      if(previewOnly){
+        const s=step();inspector.append(el('h3',s?M.stepName(s,selected):c.name,'je-inspector-title'));
+        if(!s){inspector.append(el('p',`Cookies: ${config.cookies===false?'disabled':'enabled'} · ${config.vus} users · ${config.duration}`,'je-note'));return;}
+        inspector.append(el('p',M.describe(s),'je-note'));
+        const details=M.kind(s)==='request'?{method:s.method||'GET',url:s.url,headers:s.headers||{},body:s.body||'',success_statuses:s.success_statuses?.length===200?'200–399':s.success_statuses||[],assertions:s.assertions||[]}:M.kind(s)==='loop'?{count:s.loop.count,while:s.loop.while,max_iterations:s.loop.max_iterations}:s.if.condition;
+        inspector.append(el('pre',JSON.stringify(details,null,2),'je-note'));return;
+      }
       if(selected<0){journeyInspector(inspector);return;}
       const s=step(),info=M.dependencies(config,si).steps[selected];if(!s)return;
       if(M.kind(s)!=='request'){controlInspector(inspector,s);return;}
@@ -286,8 +294,10 @@ globalThis.GmeterJourneyEditor = (() => {
     });
     viewport.addEventListener('wheel',event=>{if(!event.ctrlKey&&!event.metaKey)return;event.preventDefault();const b=viewport.getBoundingClientRect();zoomAt(zoom*(event.deltaY<0?1.1:1/1.1),{x:event.clientX-b.left,y:event.clientY-b.top});},{passive:false});
     const observer=new ResizeObserver(()=>{if(!viewport.clientWidth||viewport.clientWidth===lastWidth)return;lastWidth=viewport.clientWidth;cancelAnimationFrame(pendingFrame);pendingFrame=requestAnimationFrame(()=>{renderGraph();if(autoFit)fit();});});observer.observe(viewport);
-    document.addEventListener('fullscreenchange',()=>{if(root.isConnected){autoFit=true;requestAnimationFrame(fit);}});
+    const onFullscreen=()=>{if(root.isConnected){autoFit=true;requestAnimationFrame(fit);}};
+    document.addEventListener('fullscreenchange',onFullscreen);
     return {
+      destroy() {observer.disconnect();cancelAnimationFrame(pendingFrame);document.removeEventListener('fullscreenchange',onFullscreen);},
       load(c,replaceDraft=false) {
         if(internal)return;
         try{M.shape(c);const replaced=JSON.stringify(config.scenarios)!==JSON.stringify(c.scenarios);if(JSON.stringify(config)!==JSON.stringify(c))history=[];config=M.copy(c);if(replaceDraft){errors.clear();options.onDraftError?.('');history=[];si=0;selected=0;tab=readonly?'results':'request';preview=null;autoFit=true;message('');}render(!replaceDraft&&!!errors.size);if(replaced&&autoFit)requestAnimationFrame(fit);}

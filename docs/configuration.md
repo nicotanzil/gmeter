@@ -48,6 +48,7 @@ Command-line flags override the corresponding scenario fields.
 | `journey_thresholds` | zero journey errors | Whole-journey criteria; see [journeys](scenarios.md) |
 | `scenarios` | empty | Weighted multi-step journeys; rate and concurrency then refer to journeys |
 | `variables` | empty | Initial template variables for journeys |
+| `cookies` | `true` when omitted | Journey cookie jars; `false` disables cookie storage and automatic sending. Imported plans without a Cookie Manager use `false`; single-request tests do not use a jar |
 | `timeout` | `5s` | Per-request timeout including connection and full response body |
 | `think_time` | `0s` | Pause between each user's requests or journeys; users mode only |
 | `max_response_bytes` | `10485760` | Response-body read cap; exceeding it fails the attempt |

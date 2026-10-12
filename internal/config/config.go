@@ -47,6 +47,7 @@ type Config struct {
 	Stages              []Stage           `json:"stages,omitempty"`
 	Thresholds          Thresholds        `json:"thresholds,omitempty"`
 	Variables           map[string]string `json:"variables,omitempty"`
+	Cookies             *bool             `json:"cookies,omitempty"`
 	Scenarios           []Scenario        `json:"scenarios,omitempty"`
 	JourneyTimeout      string            `json:"journey_timeout"`
 	JourneyThresholds   JourneyThresholds `json:"journey_thresholds,omitempty"`

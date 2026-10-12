@@ -198,7 +198,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodHead {
 			t.Execute(w, s.token)
 		}
-	case "/app.js", "/style.css", "/theme.js", "/theme.css", "/journey-model.js", "/journey-editor.js", "/journey.css", "/coverage.json",
+	case "/app.js", "/style.css", "/theme.js", "/theme.css", "/journey-model.js", "/journey-editor.js", "/journey.css", "/jmx.js", "/jmx.css", "/coverage.json",
 		"/IBMPlexSans-Regular.woff2", "/IBMPlexSans-Medium.woff2", "/IBMPlexSans-SemiBold.woff2", "/IBMPlexSans-Bold.woff2", "/IBMPlexMono-Regular.woff2":
 		body, err := assets.ReadFile("assets" + r.URL.Path)
 		if err != nil {
@@ -248,6 +248,9 @@ func readConfig(w http.ResponseWriter, r *http.Request) (config.Config, config.P
 
 func (s *Server) api(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
+	if s.jmxAPI(w, r) {
+		return
+	}
 	if r.Method == "POST" && path == "/api/config-export" {
 		if strings.Split(r.Header.Get("Content-Type"), ";")[0] != "application/json" {
 			fail(w, 400, "Send a JSON configuration.")
@@ -298,7 +301,7 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request) {
 			summary := s.current.summary()
 			current = &summary
 		}
-		jsonResponse(w, 200, map[string]any{"current": current, "runs": s.store.runList(), "scenarios": s.store.scenarioList(), "max_samples": maxSamples})
+		jsonResponse(w, 200, map[string]any{"current": current, "runs": s.store.runList(), "scenarios": s.store.scenarioList(), "migrations": s.store.migrationList(), "max_samples": maxSamples})
 		return
 	}
 	if r.Method == "GET" && path == "/api/examples" {
@@ -577,6 +580,9 @@ func (s *Server) saveScenario(w http.ResponseWriter, id string, c config.Config)
 		}
 	}
 	saved := SavedScenario{ID: id, Name: c.Name, UpdatedAt: time.Now().UTC(), Config: c}
+	if old, ok := s.store.scenarios[id]; ok {
+		saved.Migration = old.Migration
+	}
 	if err := s.store.write("scenarios", id, saved); err != nil {
 		fail(w, 500, err.Error())
 		return

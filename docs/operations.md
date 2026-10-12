@@ -61,6 +61,8 @@ The data is not encrypted at rest.
 | Item | Current bound / retention |
 | --- | --- |
 | Configuration import | 1 MiB |
+| JMX source import | 1 MiB; original source and explicit properties retained on save |
+| Migration drafts | 50 non-runnable drafts, stored separately from scenarios |
 | Dashboard run record or imported bundle | 16 MiB |
 | Saved scenarios | 200 |
 | Saved runs | 1000 |

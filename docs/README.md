@@ -24,6 +24,7 @@ contextual explanations, and troubleshooting.
 | --- | --- |
 | [Configuration reference](configuration.md) | Request settings, defaults, traffic phases, and acceptance checks |
 | [Application journeys](scenarios.md) | Sessions, data rows, templates, extraction, assertions, and weighted mixes |
+| [JMeter JMX import](jmx-import.md) | Guided compatibility review, supported HTTP mappings, and non-runnable migration drafts |
 | [HTTPS](https.md) | Verified defaults, opt-in insecure workload requests, and separate trust settings |
 | [Distributed workers](workers.md) | Tokens, TLS, shared schedules, quotas, cancellation, and unknown traffic |
 | [Generator diagnostics](diagnostics.md) | Process resources, connection reuse, HTTP timings, and instrumentation limits |

@@ -69,24 +69,27 @@ func (r Run) summary() RunSummary {
 }
 
 type SavedScenario struct {
-	ID        string        `json:"id"`
-	Name      string        `json:"name"`
-	UpdatedAt time.Time     `json:"updated_at"`
-	Config    config.Config `json:"config"`
+	ID        string           `json:"id"`
+	Name      string           `json:"name"`
+	UpdatedAt time.Time        `json:"updated_at"`
+	Config    config.Config    `json:"config"`
+	Migration *MigrationSource `json:"migration,omitempty"`
 }
 
 type ScenarioSummary struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	UpdatedAt time.Time `json:"updated_at"`
-	Mode      string    `json:"mode"`
-	Workload  string    `json:"workload"`
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	UpdatedAt   time.Time `json:"updated_at"`
+	Mode        string    `json:"mode"`
+	Workload    string    `json:"workload"`
+	ImportedJMX bool      `json:"imported_jmx,omitempty"`
 }
 
 type store struct {
-	dir       string
-	runs      map[string]RunSummary
-	scenarios map[string]SavedScenario
+	dir        string
+	runs       map[string]RunSummary
+	scenarios  map[string]SavedScenario
+	migrations map[string]MigrationDraft
 }
 
 func newID() (string, error) {
@@ -106,8 +109,8 @@ func validID(id string) bool {
 }
 
 func openStore(dir string) (*store, error) {
-	s := &store{dir: dir, runs: map[string]RunSummary{}, scenarios: map[string]SavedScenario{}}
-	for _, kind := range []string{"runs", "scenarios"} {
+	s := &store{dir: dir, runs: map[string]RunSummary{}, scenarios: map[string]SavedScenario{}, migrations: map[string]MigrationDraft{}}
+	for _, kind := range []string{"runs", "scenarios", "migrations"} {
 		path := filepath.Join(dir, kind)
 		if err := os.MkdirAll(path, 0700); err != nil {
 			return nil, err
@@ -140,6 +143,15 @@ func openStore(dir string) (*store, error) {
 					}
 				}
 				s.runs[id] = run.summary()
+			} else if kind == "migrations" {
+				var draft MigrationDraft
+				if err := readRecord(filepath.Join(path, entry.Name()), &draft); err != nil {
+					return nil, err
+				}
+				if draft.ID != id {
+					return nil, fmt.Errorf("migration draft ID does not match filename: %s", id)
+				}
+				s.migrations[id] = draft
 			} else {
 				var scenario SavedScenario
 				if err := readRecord(filepath.Join(path, entry.Name()), &scenario); err != nil {
@@ -210,7 +222,7 @@ func (s *store) scenarioList() []ScenarioSummary {
 		if len(scenario.Config.Scenarios) > 0 {
 			workload = "journeys"
 		}
-		list = append(list, ScenarioSummary{scenario.ID, scenario.Name, scenario.UpdatedAt, scenario.Config.Mode, workload})
+		list = append(list, ScenarioSummary{scenario.ID, scenario.Name, scenario.UpdatedAt, scenario.Config.Mode, workload, scenario.Migration != nil})
 	}
 	sort.Slice(list, func(i, j int) bool { return list[i].UpdatedAt.After(list[j].UpdatedAt) })
 	return list

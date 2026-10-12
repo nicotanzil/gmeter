@@ -30,7 +30,7 @@ better throughput, accuracy, resource use, or target health.
 | Workloads | Fixed users, constant/jittered arrivals, rate phases, weighted journeys, fixed-count/while loops, if/else, bounded admission and explicit drops | User ramps and groups, foreach/once-only/switch, compound conditions, synchronization, setup/teardown, additional timer distributions |
 | Data and customization | Inline rows and scoped strings | File datasets, function library, processor hooks, scripting and extension APIs |
 | Other protocols | HTTP(S) | Database, directory, messaging, TCP, transfer, mail, process and Java adapters; Bolt; legacy support decisions |
-| Authoring and compatibility | Local web app, journey canvas with nested branches and loops, JSON plans, saved runs and portable bundles | Recording, component tree/scoping, JMX migration and external result exchange |
+| Authoring and compatibility | Local web app, journey canvas, JSON plans, saved runs and portable bundles; guided JMX analysis and limited HTTP conversion | Recording, broader JMX component/scoping mappings, cross-engine conformance and external result exchange |
 | Analysis | Bounded histograms, phase/scenario/step metrics, portable reports, comparisons, generator diagnostics and target metric observation | Debug samples, configurable result sinks, more charts, offline sample analysis, notification listeners |
 | Distributed execution | A global rate partitioned across authenticated workers | Distributed users, file deployment, recovery, and compatibility with existing distributed plans |
 
@@ -108,6 +108,13 @@ resource accounting, bounded payloads and cancellation deadlines.
 - [ ] Script hooks and function library; public sampler/timer/processor/listener APIs.
 - [ ] External metric sinks, mail/custom listeners and extension lifecycle controls.
 - [ ] Decide compatibility for deprecated components, including legacy MongoDB.
+
+Initial slice: [guided JMX import](jmx-import.md) analyzes JMeter 5.6.3 plans,
+maps a limited set of duration-based HTTP journeys, and preserves blocked plans
+as non-runnable migration drafts. Per-component blockers, property inputs,
+required runtime review, original source retention, and counted native HTTP
+fixtures are implemented. Full component coverage and cross-engine conformance
+remain open, so this program-level item is not marked complete.
 
 Gate: run representative reference plans in both engines and compare observable
 semantics. The grouped catalog is not a substitute for this component/property

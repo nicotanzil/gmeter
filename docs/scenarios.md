@@ -148,6 +148,12 @@ are shared only by that user's steps and iterations. Every rate-mode journey
 gets a fresh jar. HTTP transports and connection pools are shared, while cookie
 and variable state are isolated.
 
+Set top-level `"cookies": false` to disable cookie storage and automatic sending
+for every journey. Omitted or `true` retains the behavior above. Explicit Cookie
+headers remain ordinary configured headers. [JMX imports](jmx-import.md) set
+this to `false` when the source has no Cookie Manager. This field has no effect
+in single-request mode, which does not use a cookie jar.
+
 Cookie state is limited to 512 distinct keys and 64 KiB of stored name, value,
 domain, and path bytes per session. Existing keys can update; explicit expiry
 deletes a key. Natural expiry does not free the history key until an explicit

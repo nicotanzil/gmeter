@@ -73,6 +73,20 @@ extensions to the first worker version. Reuse the existing engine and validation
 Preserve the measurement contract:
 journey arrivals and HTTP request attempts have separate counts and rates.
 
+### Guided JMX import (12 October 2026)
+
+- [x] Guided file selection, component compatibility review, literal property
+  inputs, source paths, journey preview, and explicit save.
+- [x] Limited JMeter 5.6.3 duration-based HTTP conversion with scoped headers,
+  static variables, raw bodies, fixed loops, basic assertions, and explicit
+  cookie behavior. Unsupported settings block executable output.
+- [x] Required gmeter runtime review, server-side reanalysis, bounded XML,
+  original source retention, and persistent non-runnable migration drafts.
+- [x] Malformed/unsupported fixtures, counted native HTTP execution, persistence,
+  authorization and source-provenance checks. See docs/jmx-import.md.
+- [ ] Broader JMX mappings and cross-engine conformance; finite iterations,
+  ramps, CSV data, redirects, richer controllers and failure actions remain open.
+
 ### Executable control flow acceptance (10 October 2026)
 
 - Recursive request/if/loop configuration preserves existing journey files.

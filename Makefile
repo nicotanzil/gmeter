@@ -11,6 +11,7 @@ test: test-ui
 test-ui:
 	$(NODE) --check internal/dashboard/assets/theme.js
 	$(NODE) --check internal/dashboard/assets/app.js
+	$(NODE) --check internal/dashboard/assets/jmx.js
 	$(NODE) --check internal/dashboard/assets/journey-editor.js
 	$(NODE) --test internal/dashboard/test/*.test.cjs
 

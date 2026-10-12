@@ -137,6 +137,20 @@ changes that entry. **Save editor as a new scenario** makes a separate copy.
 Exports validate the editor first and use a native browser download. The server
 retains at most 16 temporary configuration exports for five minutes in memory.
 
+## Guided JMeter import
+
+Choose **Build → Import JMeter JMX** to review a `.jmx` file, supply literal
+property inputs, inspect compatibility details, and preview its journey.
+The converter targets a limited subset of JMeter 5.6.3 HTTP plans. All blockers
+and required inputs must be resolved, and runtime policies accepted, before
+**Save scenario** becomes available. Saving and previewing send no traffic.
+
+Blocked plans can be saved under **Migration drafts**, below the Scenario
+library. They cannot run. A saved converted scenario retains its source through
+**Review original JMX**; later builder edits do not change that original XML.
+See the [import guide](jmx-import.md) for supported settings, runtime differences,
+storage, and the sample walkthrough.
+
 ## Live measurements
 
 ![Completed local-demo run with acceptance checks and workload charts](images/run-results.jpg)

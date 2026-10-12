@@ -51,6 +51,19 @@ Load **Branches and loops** to explore a nested example. [Flow syntax and limits
 
 ![Executable branches and loops on the journey canvas](docs/images/journey-flow.png)
 
+Coming from JMeter? Choose **Import JMeter JMX** in the builder. Review component
+compatibility, supply properties, preview the mapped journey, then save a native
+scenario or a separate migration draft. This first converter accepts a limited
+set of JMeter 5.6.3 HTTP plans; unsupported behavior blocks runnable conversion.
+See the [JMX import guide](docs/jmx-import.md) for the exact scope and runtime differences.
+
+<details>
+<summary>JMeter import compatibility review</summary>
+
+![Guided JMX component review with runtime policies and property inputs](docs/images/jmx-import.jpg)
+
+</details>
+
 Prefer the CLI? With the demo still running:
 
 ```sh
@@ -99,6 +112,7 @@ they are not benchmarks. [Screenshot capture notes](docs/images/README.md).
 | Journey canvas | Visual request/control editing, path changes, dependency links, pauses, undo, structure preview, and observed request/decision/iteration counts |
 | Acceptance checks | Request and journey latency, error rates, missed demand, minimum started throughput |
 | Authoring | Guided builder, starter configurations, Advanced JSON, saved scenarios, first-test guide |
+| JMeter migration | Guided JMX analysis, limited HTTP conversion, property inputs, original source retention, and separate migration drafts |
 | Results | Live charts, history, two-run comparison, JSON/HTML reports, portable run bundles |
 | Generator diagnostics | Process resources, arrival delay, connection reuse, and HTTP transport timings |
 | Target-server telemetry | Selected scalar gauges/counters from a Prometheus text exporter, with explicit gaps and resets |

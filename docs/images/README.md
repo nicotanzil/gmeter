@@ -55,3 +55,17 @@ Reproduce with `make build` followed by `make test-browser` in an environment
 with Playwright and Chromium available. Set `GMETER_FLOW_SCREENSHOT` to the
 output PNG path; optional `PLAYWRIGHT_MODULE` and `CHROME_PATH` select externally
 installed tools. This capture represents authoring, with no invented run results.
+
+## Guided JMX import (12 October 2026)
+
+[jmx-import.jpg](jmx-import.jpg) is a real 1280 × 1655 full-page capture of the
+embedded guided importer, using its normal 1280 × 720 viewport in light mode.
+It displays the bundled `examples/jmx/http-smoke.jmx`, the required runtime
+review, and property defaults targeting the local demo. No workload was run
+for this capture. The source checkout displays `0.2.0`; the image represents
+this development feature, not a previously published release.
+
+Reproduce by building and starting the dashboard with a separate workspace,
+choosing **Import JMeter JMX → Review sample plan**, and capturing the
+compatibility review before accepting the runtime policies. No credentials,
+private targets, or fabricated results appear in this image.

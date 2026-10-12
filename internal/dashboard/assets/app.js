@@ -46,6 +46,11 @@ const journeyEditor = GmeterJourneyEditor.create($('journey-canvas'), {
   }
 });
 const runJourneyEditor = GmeterJourneyEditor.create($('run-journey-canvas'), {readonly:true});
+const jmxImport = GmeterJMX.create($('view-jmx'), {
+  api, show:()=>showView('jmx'), close:()=>showView('build'), help:()=>openGuide('guide-jmx'), refresh,
+  load:(config,id)=>{setEditor(config,id);showView('build');notice('Imported scenario loaded. Review it before starting a run.');}
+});
+$('import-jmx').addEventListener('click',()=>jmxImport.open());
 function showBuilderTab(tab) {
   $('builder-settings').hidden = tab !== 'settings'; $('journey-canvas').hidden = tab !== 'journey';
   $('builder-settings-tab').setAttribute('aria-pressed', tab === 'settings'); $('builder-journey-tab').setAttribute('aria-pressed', tab === 'journey');
@@ -61,9 +66,9 @@ $('plan-mobile-toggle').addEventListener('click', () => {
 });
 function showView(next) {
   view = next; $('notice').hidden = true;
-  for (const name of ['build', 'live', 'history', 'guide', 'coverage']) $('view-' + name).hidden = name !== next;
+  for (const name of ['build', 'jmx', 'live', 'history', 'guide', 'coverage']) $('view-' + name).hidden = name !== next;
   for (const e of document.querySelectorAll('.nav')) {
-    const selected = e.dataset.view === next;
+    const selected = e.dataset.view === next || next==='jmx'&&e.dataset.view==='build';
     e.classList.toggle('active', selected);
     if (selected) e.setAttribute('aria-current', 'page'); else e.removeAttribute('aria-current');
   }
@@ -74,6 +79,7 @@ function showView(next) {
   if (next === 'live' && current) requestAnimationFrame(drawCharts);
   if (next === 'build' && !$('journey-canvas').hidden) journeyEditor.show();
   if (next === 'live' && !$('run-journey-canvas').hidden) runJourneyEditor.show();
+  if (next === 'jmx') jmxImport.show();
 }
 for (const e of document.querySelectorAll('[data-view]')) e.addEventListener('click', () => showView(e.dataset.view));
 document.addEventListener('click', e => { if (!$('nav-more').contains(e.target)) $('nav-more').open = false; });
@@ -367,6 +373,7 @@ $('file-input').addEventListener('change', async () => {
 async function refresh() {
   const state = await (await api('/api/state')).json(); library = state.scenarios; runs = state.runs;
   renderLibrary(); renderHistory();
+  renderMigrations(state.migrations||[]);
   const running = state.current && active(state.current);
   activeID = running ? state.current.id : '';
   $('start').disabled = !!activeID; $('live-dot').hidden = !activeID;
@@ -387,7 +394,19 @@ function renderLibrary() {
       if (!confirm('Delete this saved scenario? Run results will remain.')) return;
       try { await api(`/api/scenarios/${s.id}`, 'DELETE'); if (selectedScenario === s.id) setEditor(readEditor()); await refresh(); notice('Scenario deleted.'); } catch (e) { notice(e.message, true); }
     });
-    item.append(button, node('small', `${s.workload === 'journeys' ? 'Journeys' : 'Requests'} · ${s.mode} mode`), remove); return item;
+    item.append(button, node('small', `${s.workload === 'journeys' ? 'Journeys' : 'Requests'} · ${s.mode} mode`), remove);
+    if(s.imported_jmx){const source=node('button','Review original JMX','text-button jmx-source-link');source.type='button';source.addEventListener('click',async()=>{try{const saved=await(await api(`/api/scenarios/${s.id}`)).json();await jmxImport.open({...saved.migration,name:saved.name});notice('Reviewing the original JMX. Subsequent builder edits are not part of this source plan.');}catch(e){notice(e.message,true);}});item.append(source);}
+    return item;
+  }));
+}
+function renderMigrations(drafts){
+  $('migration-count').textContent=drafts.length;
+  if(!drafts.length){$('migration-library').replaceChildren(node('div','Save an import draft to continue it later.','empty-small'));return;}
+  $('migration-library').replaceChildren(...drafts.map(d=>{
+    const item=node('div',undefined,'jmx-draft-item'),open=node('button',d.name||d.filename),remove=node('button','Delete draft','text-button');open.type=remove.type='button';
+    open.addEventListener('click',async()=>{try{await jmxImport.open(await(await api(`/api/jmx/migrations/${d.id}`)).json());}catch(e){notice(e.message,true);}});
+    remove.addEventListener('click',async()=>{if(!confirm('Delete this migration draft and its stored JMX source?'))return;try{await api(`/api/jmx/migrations/${d.id}`,'DELETE');await refresh();notice('Migration draft deleted.');}catch(e){notice(e.message,true);}});
+    item.append(open,node('small','Migration draft · Not runnable'),remove);return item;
   }));
 }
 
