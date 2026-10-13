@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"gmeter/internal/design"
 	"gmeter/internal/engine"
 	"gmeter/internal/telemetry"
 )
@@ -64,6 +65,7 @@ func Write(path string, render func(io.Writer) error) error {
 }
 
 var page = template.Must(template.New("report").Funcs(template.FuncMap{
+	"designCSS":       func() template.CSS { return template.CSS(design.ReportCSS) },
 	"f":               func(v float64) string { return fmt.Sprintf("%.2f", v) },
 	"f1":              func(v float64) string { return fmt.Sprintf("%.1f", v) },
 	"mib":             func(v uint64) string { return fmt.Sprintf("%.2f", float64(v)/(1<<20)) },
@@ -108,6 +110,7 @@ header{display:flex;justify-content:space-between;align-items:center;border-bott
 .cards{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:22px}.card,.panel{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:22px}.card-label{color:var(--muted);font-size:12px}.value{font-size:30px;letter-spacing:-1px;font-weight:650;margin:5px 0}.unit{font-size:14px;font-weight:400;color:var(--muted);letter-spacing:0}.note{color:var(--muted);font-size:12px}.grid{display:grid;grid-template-columns:1.7fr 1fr;gap:18px;margin-bottom:22px}.panel{min-width:0}table{width:100%;border-collapse:collapse;text-align:left;font-variant-numeric:tabular-nums}th{font-size:11px;color:var(--muted);font-weight:500;text-transform:uppercase;letter-spacing:.8px}th,td{padding:11px 10px;border-bottom:1px solid var(--border)}th:first-child,td:first-child{padding-left:0}tbody tr:last-child td{border:0}td{font-size:13px}td.num{text-align:right}.scroll{overflow-x:auto}.phase-name{font-weight:650}.bar{height:5px;background:#283a4b;border-radius:4px;margin-top:7px;min-width:100px}.fill{height:100%;background:var(--mint);border-radius:4px}.good{color:var(--mint)}.bad{color:var(--red)}.check{display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)}.check:last-child{border:0}.check-symbol{font-weight:800}.check-text{flex:1;font-size:13px}.check-value{font-size:12px;color:var(--muted);white-space:nowrap}
 .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}.stat{padding:6px 0}.stat strong{display:block;font-size:20px;letter-spacing:-.5px}.stat span{font-size:12px;color:var(--muted)}.details{display:flex;flex-wrap:wrap;gap:12px 28px;margin-top:16px;color:var(--muted);font-size:12px}.warning{background:#33251c;border:1px solid #6b4930;color:#ffd2a1;padding:14px 18px;border-radius:9px;font-size:13px;margin-bottom:22px}footer{color:var(--muted);font-size:12px;padding-top:24px;display:flex;justify-content:space-between;gap:20px}.small{font-size:12px;color:var(--muted);margin-top:12px}
 @media(max-width:900px){.grid{grid-template-columns:1fr}.cards{grid-template-columns:repeat(2,1fr)}}@media(max-width:520px){main{padding:22px 16px}.card{padding:16px}.value{font-size:25px}h1{font-size:27px}.tag{display:none}.stats{grid-template-columns:repeat(2,1fr)}footer{display:block}.check-value{white-space:normal}}
+{{designCSS}}
 </style></head><body><main>{{$traffic := .Arrivals}}
 <header><div class="brand">g<span>meter</span></div><div class="tag">Find your system's limits</div></header>
 <section class="hero"><div class="eyebrow">HTTP stress test · {{.Mode}} mode · {{if eq .Workload "journeys"}}journey workload{{else}}request workload{{end}}</div><h1>{{.Name}}<span class="badge {{if not .Passed}}fail{{end}}">{{if .Interrupted}}INTERRUPTED{{else if .Passed}}PASS{{else}}FAIL{{end}}</span></h1><div class="target">{{if ne .Workload "journeys"}}{{.Method}} {{end}}{{.URL}}</div><div class="details"><span>{{.StartedAt.Format "2006-01-02 15:04:05 UTC"}}</span><span>{{f .LoadSeconds}}s load · {{drain .TotalSeconds .LoadSeconds}}s {{if or .Distribution .Telemetry}}drain + collection{{else}}drain{{end}}</span><span>{{.ConcurrencyLimit}} concurrent {{if eq .Workload "journeys"}}journey{{else}}request{{end}} limit</span><span>{{.ArrivalDistribution}} arrivals</span></div></section>

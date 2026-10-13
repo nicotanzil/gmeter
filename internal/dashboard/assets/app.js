@@ -596,7 +596,7 @@ function drawChart(id, series, xEnd, fixedMax, xStart = 0, signed = false) {
   let min=signed?Math.min(0,...values)*1.15:0;
   let max = fixedMax || Math.max(signed?0:1, ...values) * 1.15;
   if (max<=min) max=min+1;
-  ctx.font = '10px -apple-system, sans-serif'; ctx.lineWidth = 1;
+  ctx.font = '10px ' + theme.getPropertyValue('--font-mono').trim(); ctx.lineWidth = 1;
   for (let i = 0; i <= 4; i++) {
     const y = bottom - (bottom - top) * i / 4;
     ctx.strokeStyle = grid; ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(right, y); ctx.stroke();

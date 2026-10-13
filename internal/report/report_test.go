@@ -2,11 +2,13 @@ package report
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -14,6 +16,27 @@ import (
 	"gmeter/internal/engine"
 	"gmeter/internal/metrics"
 )
+
+func TestReportFontsAreSelfContained(t *testing.T) {
+	var out bytes.Buffer
+	if err := HTML(&out, engine.Result{Name: "Portable report"}); err != nil {
+		t.Fatal(err)
+	}
+	urls := regexp.MustCompile(`url\("([^"\)]+)"\)`).FindAllStringSubmatch(out.String(), -1)
+	if len(urls) == 0 {
+		t.Fatal("report has no bundled fonts")
+	}
+	for _, match := range urls {
+		data, ok := strings.CutPrefix(match[1], "data:font/woff2;base64,")
+		if !ok {
+			t.Fatalf("report depends on a font server: %s", match[1])
+		}
+		font, err := base64.StdEncoding.DecodeString(data)
+		if err != nil || !bytes.HasPrefix(font, []byte("wOF2")) {
+			t.Fatal("report contains an invalid WOFF2 asset")
+		}
+	}
+}
 
 func TestReportsEscapeUntrustedNamesAndKeepCounts(t *testing.T) {
 	r := engine.Result{Name: `<script>alert("x")</script>`, URL: "http://localhost/?x=<svg>", Passed: true}

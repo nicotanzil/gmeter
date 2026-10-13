@@ -20,6 +20,7 @@ import (
 
 	"gmeter/examples"
 	"gmeter/internal/config"
+	"gmeter/internal/design"
 	"gmeter/internal/diagnostics"
 	"gmeter/internal/distributed"
 	"gmeter/internal/engine"
@@ -197,6 +198,20 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		if r.Method != http.MethodHead {
 			t.Execute(w, s.token)
+		}
+	case "/fonts.css", "/BricolageGrotesque-Latin.woff2", "/BricolageGrotesque-LatinExt.woff2", "/HankenGrotesk-Latin.woff2", "/HankenGrotesk-LatinExt.woff2":
+		body, err := design.Files.ReadFile("assets" + r.URL.Path)
+		if err != nil {
+			fail(w, 404, "Asset not found.")
+			return
+		}
+		kind := "font/woff2"
+		if r.URL.Path == "/fonts.css" {
+			kind = "text/css; charset=utf-8"
+		}
+		w.Header().Set("Content-Type", kind)
+		if r.Method != http.MethodHead {
+			w.Write(body)
 		}
 	case "/app.js", "/style.css", "/theme.js", "/theme.css", "/journey-model.js", "/journey-editor.js", "/journey.css", "/jmx.js", "/jmx.css", "/coverage.json",
 		"/IBMPlexSans-Regular.woff2", "/IBMPlexSans-Medium.woff2", "/IBMPlexSans-SemiBold.woff2", "/IBMPlexSans-Bold.woff2", "/IBMPlexMono-Regular.woff2":
@@ -445,7 +460,7 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
 				report.JSON(w, *run.Result)
 			} else {
-				w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'")
+				w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; font-src data:; base-uri 'none'; frame-ancestors 'none'")
 				w.Header().Set("Content-Type", "text/html; charset=utf-8")
 				report.HTML(w, *run.Result)
 			}
