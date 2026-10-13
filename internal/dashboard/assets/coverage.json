@@ -197,7 +197,7 @@
       "name": "Concurrent users and thread lifecycle",
       "group": "Scheduling",
       "status": "partial",
-      "detail": "Fixed users repeat until a duration expires; no user ramp, loop count, delayed start, independent thread groups, or configurable stop-on-error policy.",
+      "detail": "Fixed users repeat for a duration, a finite number of iterations per user, or whichever limit comes first. No user ramp, delayed start, independent thread groups, or configurable stop-on-error policy.",
       "stage": "2 \u00b7 Controls",
       "source": "https://jmeter.apache.org/usermanual/build-web-test-plan.html",
       "evidence": "internal/engine/engine.go"

@@ -8,7 +8,15 @@ tools. Counts describe logical workload execution; they are not wire captures.
 ## Workload accounting
 
 - **Users mode** is a closed workload: response speed and think time determine
-  traffic. A slower target naturally reduces arrivals in this mode.
+  traffic. A slower target naturally reduces arrivals in this mode. Optional
+  `iterations` limits attempts independently for each user. Failed attempts count;
+  nested loop executions are HTTP attempts within one journey, not extra outer
+  iterations. With a duration too, whichever limit comes first closes admission.
+  Unstarted iterations after cancellation or a duration limit are not dropped
+  arrivals. Count-only runs have `planned_load_seconds: 0`; measured load seconds
+  cover execution through the last user's completion. When a duration closes
+  admission first, its window is the rate denominator and journey drain is
+  separate. Early count completion uses actual elapsed time, not the time cap.
 - **Rate mode** uses a monotonic clock. With `arrival_distribution: "constant"`, each
   phase starts with an immediate arrival, then repeats every `1/rate` seconds.
   A phase schedules `ceil(duration × rate)` arrivals; adjacent phases can have
@@ -31,7 +39,11 @@ tools. Counts describe logical workload execution; they are not wire captures.
   generator and HTTP diagnostics. Distributed results use schema 4; configured
   server telemetry uses schema 5 in either execution mode. Journeys containing
   branches or loops use schema 6 in all execution modes, preserving telemetry.
-  `workload` identifies the arrival unit.
+  Finite users runs use schema 7, preserving diagnostics, flow and telemetry
+  fields, and adding `iterations` (per user) and `stop_reason` (`iterations`,
+  `duration`, or `interrupted`). `iterations` means all users finished their
+  count; a duration stop can still pass normal error/latency checks with fewer
+  iterations. `workload` identifies the arrival unit.
   `target_rate` is in that unit; `target_rps` is zero for journey workloads.
 - A **started** request is a dispatched logical HTTP attempt. Go's transport may
   transparently retry certain idempotent attempts on broken reused connections;

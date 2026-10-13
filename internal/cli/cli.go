@@ -18,7 +18,7 @@ import (
 	"gmeter/internal/telemetry"
 )
 
-var Version = "0.3.0-dev"
+var Version = "0.4.0-dev"
 
 const help = `gmeter — HTTP load and stress testing
 
@@ -155,7 +155,7 @@ func validate(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
-	fmt.Fprintf(stdout, "Valid: %s · %s mode · %s · %d phase(s)\n", c.Name, c.Mode, p.LoadDuration, len(p.Phases))
+	fmt.Fprintf(stdout, "Valid: %s · %s mode · %s · %d phase(s)\n", c.Name, c.Mode, loadDescription(p), len(p.Phases))
 	if p.IsJourney() {
 		fmt.Fprintf(stdout, "%d scenario(s) · rate unit: journeys/second · %s arrivals\n", len(p.ScenarioPlans), p.ArrivalDistribution)
 	}
@@ -173,6 +173,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	body := fs.String("body", "", "request body (use config for headers)")
 	mode := fs.String("mode", d.Mode, "users or rate")
 	duration := fs.String("duration", d.Duration, "load duration (ignored when stages are configured)")
+	iterations := fs.Int("iterations", 0, "iterations per user; clears duration unless -duration is also supplied")
 	vus := fs.Int("vus", d.VUs, "concurrent users in users mode")
 	rate := fs.Int("rate", 0, "workload arrivals/second (journeys when scenarios are present); selects rate mode")
 	maxInFlight := fs.Int("max-in-flight", d.MaxInFlight, "concurrent workload cap in rate mode")
@@ -234,6 +235,12 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	}
 	if set["duration"] {
 		c.Duration = *duration
+	}
+	if set["iterations"] {
+		c.Iterations = *iterations
+		if *iterations > 0 && !set["duration"] {
+			c.Duration = ""
+		}
 	}
 	if set["vus"] {
 		c.VUs = *vus
@@ -318,7 +325,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	if p.IsJourney() {
 		unit = "journeys"
 	}
-	fmt.Fprintf(stderr, "gmeter %s · %s mode · %s load · concurrency %d %s · %s arrivals\n%s\n", Version, c.Mode, p.LoadDuration, limit, unit, p.ArrivalDistribution, c.URL)
+	fmt.Fprintf(stderr, "gmeter %s · %s mode · %s · concurrency %d %s · %s arrivals\n%s\n", Version, c.Mode, loadDescription(p), limit, unit, p.ArrivalDistribution, c.URL)
 	if c.Insecure {
 		fmt.Fprintln(stderr, "TLS verification disabled for workload HTTPS requests. Worker and telemetry TLS verification remains enabled.")
 	}
@@ -380,6 +387,17 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+func loadDescription(p config.Plan) string {
+	if p.Iterations > 0 {
+		text := fmt.Sprintf("%d iterations/user", p.Iterations)
+		if p.LoadDuration > 0 {
+			text += fmt.Sprintf(" or %s load, whichever comes first", p.LoadDuration)
+		}
+		return text
+	}
+	return p.LoadDuration.String() + " load"
 }
 
 func distinctPaths(paths ...string) error {

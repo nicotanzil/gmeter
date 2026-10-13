@@ -57,6 +57,7 @@ precedence over an unspecified flag.
 | `-body` | empty | Literal request body; configure headers in JSON |
 | `-mode` | `users` | `users` or `rate` |
 | `-duration` | `10s` | Admission window; configured phases take precedence |
+| `-iterations` | `0` | Iterations per user, users mode only. A positive explicit flag clears duration unless `-duration` is also supplied, including when overriding a file |
 | `-vus` | `10` | Concurrent users in users mode |
 | `-rate` | `0` | Workload arrivals/s; explicitly setting it removes phases |
 | `-max-in-flight` | `100` | Concurrent requests or whole journeys in rate mode |
@@ -153,3 +154,13 @@ jobs writing the same artifacts or workspace. Record the binary version, source
 revision, configuration, target version, environment, and generator resources.
 See [operations](operations.md) for retention and [readiness](readiness.md) for
 release acceptance gates.
+
+For a finite run with 10 users making five attempts each:
+
+```sh
+./bin/gmeter run -url http://127.0.0.1:8787/work -vus 10 -iterations 5
+```
+
+Add `-duration 1m` to stop at either limit. One iteration means one request or,
+with a journey configuration, one selected journey attempt. Errors consume an
+iteration. The summary and artifacts report the stop reason.

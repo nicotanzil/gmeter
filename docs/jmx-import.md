@@ -34,7 +34,7 @@ Start the bundled demo with `./bin/gmeter-demo` before running the sample.
 
 | Source feature | Mapping and limits |
 | --- | --- |
-| Standard Thread Group | Exactly one enabled group; scheduler enabled; duration 1–86400 seconds; infinite outer iterations; 1–100000 users; zero ramp and startup delay; **Start Next Thread Loop** on error; retained user state |
+| Standard Thread Group | Exactly one enabled group; finite outer iterations 1–1000000, or infinite iterations with scheduler duration 1–86400 seconds; optional duration with finite iterations (first limit wins); 1–100000 users; zero ramp and startup delay; **Start Next Thread Loop** on error; retained user state |
 | HTTP Request | One HTTP/HTTPS origin; explicit Follow Redirects off; keep-alive; default or HttpClient4 implementation; UTF-8; relative paths or literal absolute URLs |
 | Request content | Methods and paths, scoped headers, one raw body argument, constant encoded GET arguments; variable references in paths, headers and raw bodies |
 | HTTP Request Defaults | Scoped scalar defaults flattened into requests; arguments on defaults are blocked |
@@ -47,8 +47,8 @@ Start the bundled demo with `./bin/gmeter-demo` before running the sample.
 | Result listeners | Visible notice: gmeter reports replace JMeter listeners; no JTL or configured listener file is written |
 
 Unknown enabled components, properties, incompatible XML property types, and
-unsupported scopes block conversion. Among the current blockers are finite
-thread-group iterations, multiple groups, ramps, different failure actions,
+unsupported scopes block conversion. Among the current blockers are unbounded
+thread groups, multiple groups, ramps, different failure actions,
 CSV files, extractors, timers, If/While controllers, scripts, plugins, redirects,
 uploads, form encoding, custom HTTP timeouts, authentication managers, proxies,
 and cross-origin flows. Native gmeter supports some related features, including
@@ -61,7 +61,13 @@ The component/property allowlist and tests live in `internal/jmx`.
 
 Converted plans use gmeter's 5-second **total** request timeout, 30-second
 whole-journey deadline, 10 MiB response limit, bounded loops, and aggregated
-measurements. Admitted journeys drain after the load window. HTTPS certificates
+measurements. Admitted journeys drain after the load window. Finite Thread Group
+loops map to native per-user `iterations`, independently of any inner Loop
+Controller. Without a scheduler, finite plans have no implicit duration limit.
+With a scheduler, the first count/time limit closes admission. JMeter checks its
+duration between samplers; gmeter drains the admitted journey instead. See the
+[Apache Thread Group reference](https://jmeter.apache.org/usermanual/component_reference.html#Thread_Group)
+and [5.6.3 loop implementation](https://github.com/apache/jmeter/blob/rel/v5.6.3/src/core/src/main/java/org/apache/jmeter/control/LoopController.java). HTTPS certificates
 are verified. JMeter connection implementations, default headers, cookie edge
 cases, timing statistics, and listener output can differ. This is an explicit
 conversion to gmeter behavior, not a JMeter runtime emulator.

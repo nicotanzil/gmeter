@@ -112,6 +112,7 @@ function syncForm(c, replaceJourneyDraft = false) {
   $('method').value = method;
   $('rate').value = c.rate ?? 20; $('vus').value = c.vus ?? 10;
   $('capacity').value = c.max_in_flight ?? 100; $('duration').value = c.duration || '10s';
+  $('iterations').value = c.iterations || 5; $('stop-condition').value = c.iterations > 0 ? (c.duration ? 'both' : 'iterations') : 'duration';
   $('timeout').value = c.timeout || '5s'; $('distribution').value = c.arrival_distribution || 'constant';
   $('body').value = c.body || ''; $('body-field').hidden = journey;
   $('success-statuses').value = (c.success_statuses || []).join(', ');
@@ -135,11 +136,21 @@ function syncForm(c, replaceJourneyDraft = false) {
   $('method-field').hidden = journey; $('rate-field').hidden = !rateMode || stages; $('duration-field').hidden = stages; $('traffic-limits').classList.toggle('staged', stages); $('vus-field').hidden = rateMode;
   $('capacity-field').hidden = !rateMode; $('distribution-field').hidden = !rateMode;
   $('duration').disabled = stages; $('rate').disabled = stages || !rateMode; $('vus').disabled = rateMode; $('capacity').disabled = !rateMode; $('distribution').disabled = !rateMode; $('think-time').disabled = rateMode; $('stages-hint').hidden = !stages;
+  syncStoppingFields();
   $('phase-summary').hidden = !stages; $('single-phase').hidden = !stages;
   $('phase-summary').replaceChildren(...(c.stages || []).map(s => node('span', `${s.name || 'Phase'} · ${s.rate}/s · ${s.duration}`, 'phase-chip')));
   $('builder-workload-label').textContent = journey ? `${c.scenarios.length} journey(s)` : 'Single request';
   updateInlineHints();
   journeyEditor.load(c, replaceJourneyDraft);
+}
+
+function syncStoppingFields() {
+  const users = $('mode').value === 'users', stop = $('stop-condition').value;
+  $('stop-condition-field').hidden = !users;
+  $('iterations-field').hidden = !users || stop === 'duration';
+  $('iterations').disabled = !users || stop === 'duration';
+  $('duration-field').hidden = (users && stop === 'iterations') || (!users && $('staged').checked);
+  $('duration').disabled = $('duration-field').hidden;
 }
 
 // Draft fields are parsed together: an invalid draft never silently runs an older config.
@@ -189,6 +200,12 @@ function updateBuilder() {
       if (!$(id).value.trim() || !Number.isFinite(Number($(id).value))) throw new Error('Enter a number for ' + {rate:'offered rate',vus:'concurrent users',capacity:'concurrency cap'}[id] + '.');
       c[key] = Number($(id).value);
     }
+    if (c.mode === 'users' && $('stop-condition').value !== 'duration') {
+      const value = Number($('iterations').value);
+      if (!$('iterations').value.trim() || !Number.isInteger(value) || value < 1 || value > 1000000) throw new Error('Enter 1 to 1000000 iterations per user.');
+      c.iterations = value;
+      if ($('stop-condition').value === 'iterations') c.duration = '';
+    } else delete c.iterations;
     c.diagnostics = $('diagnostics').value === 'true'; c.insecure = $('insecure').checked;
     c.arrival_distribution = $('distribution').value;
     if (!c.scenarios?.length) c.body = $('body').value;
@@ -240,6 +257,7 @@ function durationSeconds(value) {
 function updateInlineHints() {
   const duration = $('duration');
   const hints = [
+    ['iterations', !$('iterations').disabled && (!$('iterations').value.trim() || !$('iterations').validity.valid) ? 'Enter a whole number from 1 to 1000000.' : ''],
     ['duration', !duration.disabled && durationSeconds(duration.value) === null ? 'Enter a positive duration, such as 10s or 2m.' : ''],
     ['threshold-p95', $('threshold-p95').value.trim() && durationSeconds($('threshold-p95').value.trim()) === null ? 'Use a positive duration, such as 200ms.' : ''],
     ...['errors','drops','rps'].map(id => {
@@ -259,10 +277,11 @@ function updatePreview(c) {
   const journey = !!c.scenarios?.length, unit = journey ? 'journeys' : 'requests';
   const seconds = c.stages?.length ? c.stages.reduce((sum,p) => { const d=durationSeconds(p.duration); return sum === null || d === null ? null : sum+d; }, 0) : durationSeconds(c.duration);
   const planned = c.stages?.length ? c.stages.reduce((sum,p) => { const d=durationSeconds(p.duration); return sum === null || d === null ? null : sum+Math.ceil(d*p.rate); },0) : seconds === null ? null : Math.ceil(seconds*c.rate);
-  $('plan-compact').textContent = `${journey ? c.scenarios.length + ' ' + (c.scenarios.length === 1 ? 'journey' : 'journeys') : c.method || 'GET'} · ${c.mode === 'rate' ? (c.stages?.length ? c.stages.length + ' phases' : c.rate + ' ' + unit + '/s') : c.vus + ' users'} · ${seconds === null ? 'set duration' : fmt(seconds) + 's'}${planned !== null && c.mode === 'rate' ? ' · ' + count(planned) + ' planned' : ''}`;
+  const stopping = c.iterations > 0 ? `${count(c.iterations)} iterations/user${c.duration ? ' or ' + fmt(seconds) + 's, whichever comes first' : ''}` : seconds === null ? 'set duration' : fmt(seconds) + 's';
+  $('plan-compact').textContent = `${journey ? c.scenarios.length + ' ' + (c.scenarios.length === 1 ? 'journey' : 'journeys') : c.method || 'GET'} · ${c.mode === 'rate' ? (c.stages?.length ? c.stages.length + ' phases' : c.rate + ' ' + unit + '/s') : c.vus + ' users'} · ${stopping}${planned !== null && c.mode === 'rate' ? ' · ' + count(planned) + ' planned' : ''}`;
   const rows = [c.scenarios?.length ? `${c.scenarios.length} journey scenario(s)` : `${c.method || 'GET'} request`, c.url || 'Choose a target URL',
     c.mode === 'rate' ? `${c.stages?.length ? c.stages.length+' phases' : c.rate+' '+unit+'/s'} · cap ${c.max_in_flight} concurrent ${unit}` : `${c.vus} concurrent users`,
-    seconds === null ? 'Enter a valid load duration' : `${fmt(seconds)}s load window`,
+    c.iterations > 0 ? `${count(c.vus * c.iterations)} ${c.duration ? 'maximum' : 'planned'} ${unit} · ${stopping}` : seconds === null ? 'Enter a valid load duration' : `${fmt(seconds)}s load window`,
     c.mode === 'rate' && planned !== null ? `${count(planned)} planned ${unit}; some may be missed` : 'Throughput depends on response time',
     c.workers?.length ? `Run on ${c.workers.length} workers` : 'Run on this machine'];
   if (c.insecure) rows.push('HTTPS verification disabled');
@@ -281,7 +300,8 @@ function updatePreview(c) {
   if (!list.childElementCount) list.append(node('p', 'No pass criteria enabled.', 'helper'));
   checks.append(list); $('plan-preview').append(checks);
 }
-for (const id of ['name','url','method','duration','timeout','rate','vus','capacity','distribution','diagnostics','workers','body','success-statuses','insecure','think-time','threshold-p95','threshold-errors','threshold-drops','threshold-rps']) $(id).addEventListener('input', updateBuilder);
+for (const id of ['name','url','method','duration','iterations','timeout','rate','vus','capacity','distribution','diagnostics','workers','body','success-statuses','insecure','think-time','threshold-p95','threshold-errors','threshold-drops','threshold-rps']) $(id).addEventListener('input', updateBuilder);
+$('stop-condition').addEventListener('change', () => { syncStoppingFields(); updateBuilder(); });
 $('add-header').addEventListener('click', () => { addHeaderRow(); $('header-rows').lastElementChild.querySelector('input').focus(); });
 $('staged').addEventListener('change', () => {
   try { const c = readEditor(); if ($('staged').checked) { c.stages = [{name:'Phase 1',duration:c.duration,rate:c.rate}]; c.rate = 0; } else { c.rate = c.stages?.[0]?.rate || 20; delete c.stages; } setEditor(c, selectedScenario); }
@@ -300,7 +320,7 @@ $('mode').addEventListener('change', () => {
   try {
     const c = readEditor(); c.mode = $('mode').value;
     if (c.mode === 'users') { c.rate = 0; delete c.stages; c.arrival_distribution = 'constant'; }
-    else { c.rate = c.rate || 20; delete c.think_time; }
+    else { c.rate = c.rate || 20; delete c.think_time; delete c.iterations; c.duration = c.duration || '10s'; }
     $('config-json').value = JSON.stringify(c, null, 2); syncForm(c); validateMessage('Configuration changed. Validate or start a run.');
   } catch (e) { validateMessage(e.message, 'bad'); }
 });
@@ -315,7 +335,8 @@ $('starter').addEventListener('change', () => {
 });
 async function validateEditor() {
   const data = await (await api('/api/validate', 'POST', readEditor())).json();
-  validateMessage(`Valid · ${fmt(data.load_seconds)}s load · ${data.phase_count} phase(s) · ${data.workload} workload`, 'good');
+  const stop = data.config.iterations > 0 ? `${count(data.config.iterations)} iterations/user${data.load_seconds ? ' or ' + fmt(data.load_seconds) + 's, whichever comes first' : ''}` : `${fmt(data.load_seconds)}s load`;
+  validateMessage(`Valid · ${stop} · ${data.phase_count} phase(s) · ${data.workload} workload`, 'good');
   return data;
 }
 $('validate').addEventListener('click', () => validateEditor().catch(e => validateMessage(e.message, 'bad')));
@@ -442,7 +463,12 @@ function renderRun() {
   $('view-active').hidden = !activeID || run.id === activeID;
   $('phase-name').textContent = latest.phase ? `${latest.draining && active(run) ? 'Draining · ' : ''}${latest.phase}` : 'Preparing';
   $('elapsed').textContent = `${fmt(latest.load_seconds)} / ${fmt(run.planned_seconds)}s load${latest.elapsed_seconds > latest.load_seconds + .05 ? ` · ${fmt(latest.elapsed_seconds - latest.load_seconds)}s ${run.config.workers?.length||run.config.telemetry ? 'drain + collection' : 'drain'}` : ''}`;
-  $('progress').max = run.planned_seconds || 1; $('progress').value = latest.load_seconds || 0;
+  if (run.config.iterations > 0) {
+    const target = run.config.vus * run.config.iterations;
+    $('elapsed').textContent = `${count(traffic.completed)} / ${count(target)} ${run.workload} · ${fmt(latest.load_seconds)}s load${run.planned_seconds ? ' · ' + fmt(run.planned_seconds) + 's limit' : ''}${run.result?.stop_reason ? ' · Stopped: ' + {iterations:'iterations completed',duration:'duration reached',interrupted:'interrupted'}[run.result.stop_reason] : ''}`;
+    $('progress').max = target; $('progress').value = traffic.completed || 0;
+  } else { $('progress').max = run.planned_seconds || 1; $('progress').value = latest.load_seconds || 0; }
+  $('progress').setAttribute('aria-label', run.config.iterations > 0 ? `Completed ${run.workload} toward the iteration limit` : 'Admission window progress');
   $('metric-rps').textContent = fmt(r.started_rps); $('metric-requests').textContent = `${count(r.started)} HTTP attempts · ${count(r.in_flight)} in flight`;
   $('metric-latency').textContent = r.latency?.samples ? fmt(r.latency.p95_ms) + ' ms' : '—';
   $('metric-errors').textContent = fmt(r.error_percent, 2) + '%'; $('metric-errors').classList.toggle('bad', !!r.failed);
@@ -639,9 +665,9 @@ function drawCharts() {
   const phases = current.config.stages?.length ? current.config.stages : [{name: current.config.name, duration: current.config.duration, rate: current.config.rate}];
   let offset = 0, phasePoints = [];
   $('phase-list').replaceChildren(...phases.map(p => {
-    const d = duration(p.duration), target = current.config.mode === 'rate' ? (p.rate || 0) : current.config.vus;
+    const d = p.duration ? duration(p.duration) : end, target = current.config.mode === 'rate' ? (p.rate || 0) : current.config.vus;
     phasePoints.push([offset, target], [offset + d, target]);
-    offset += d; return node('span', `${p.name || 'Phase'} · ${current.config.mode === 'rate' ? (p.rate || 0) + '/s' : current.config.vus + ' users'} · ${p.duration}`);
+    offset += d; return node('span', `${p.name || 'Phase'} · ${current.config.mode === 'rate' ? (p.rate || 0) + '/s' : current.config.vus + ' users'} · ${current.config.iterations ? count(current.config.iterations) + ' iterations/user' + (p.duration ? ' or ' + p.duration : '') : p.duration}`);
   }));
   drawChart('phase-chart', [{points: phasePoints, color: colors.teal, step: true}], current.planned_seconds || offset || 1);
   if (!$('generator-panel').hidden) {
@@ -726,7 +752,7 @@ $('compare').addEventListener('click', async () => {
     }
     // Configuration mismatches are visible; no causal or automatic verdict.
     const mismatches = [];
-    for (const [key, label] of [['url', 'target'], ['mode', 'model'], ['rate', 'rate'], ['stages', 'phases'], ['duration', 'planned duration'], ['vus', 'user count'], ['max_in_flight', 'capacity'], ['scenarios', 'journey definitions'], ['method', 'method'], ['body', 'body'], ['headers', 'headers'], ['timeout', 'timeout'], ['think_time', 'think time'], ['arrival_distribution', 'arrival spacing'], ['seed', 'seed'],['workers','worker pool'],['telemetry','target telemetry']]) if (JSON.stringify(a.config[key]) !== JSON.stringify(b.config[key])) mismatches.push(label);
+    for (const [key, label] of [['url', 'target'], ['mode', 'model'], ['rate', 'rate'], ['stages', 'phases'], ['duration', 'planned duration'], ['iterations', 'iterations per user'], ['vus', 'user count'], ['max_in_flight', 'capacity'], ['scenarios', 'journey definitions'], ['method', 'method'], ['body', 'body'], ['headers', 'headers'], ['timeout', 'timeout'], ['think_time', 'think time'], ['arrival_distribution', 'arrival spacing'], ['seed', 'seed'],['workers','worker pool'],['telemetry','target telemetry']]) if (JSON.stringify(a.config[key]) !== JSON.stringify(b.config[key])) mismatches.push(label);
     if (A.workload !== B.workload) mismatches.push('arrival unit'); if (A.interrupted || B.interrupted) mismatches.push('partial run');
     const hasDiagnostics=result=>!!(result.generator||result.http||result.distribution?.workers?.some(w=>w.generator||w.requests?.http));
     if (!!a.config.insecure !== !!b.config.insecure) mismatches.push('HTTPS certificate verification');

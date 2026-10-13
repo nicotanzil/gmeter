@@ -31,7 +31,8 @@ Light or Dark. The choice is saved in this browser.
 
 ## Build and reuse tests
 
-The form edits target, model, duration, rate or users, concurrency cap, timeout,
+The form edits target, model, stopping condition, duration, iterations per user,
+rate or users, concurrency cap, timeout,
 arrival spacing, diagnostics, and optional target-server telemetry. **Advanced JSON** supports every CLI configuration field,
 including headers, bodies, phases, data rows, journeys, assertions, and thresholds.
 See [scenarios.md](scenarios.md) for journey syntax.
@@ -224,7 +225,7 @@ regression verdict.
 | Run + timeline | Configuration, final results, retained timeline | Yes |
 
 Use **Import JSON** or **Import run** for run bundles. Imports require final
-schema 2–6 results, validate configuration, final count equations, and telemetry
+schema 2–7 results, validate configuration, final count equations, and telemetry
 observation bounds/accounting when present, have a 16 MiB
 limit, and assign a new ID. They send no traffic. Imported runs are marked
 **IMPORTED**; their original traffic has not been independently verified.
@@ -297,3 +298,16 @@ preference; User guide remains available. Show welcome tip again restores it.
 If browser storage is unavailable, the guide still works and the tip may return
 on the next visit. The guide does not mark a test complete just because the
 user opened a topic or loaded a preset.
+
+## Finite users runs
+
+Open **Build a test → Test settings → Quick test**, choose **Concurrent users**,
+then choose **Stop condition**: duration, iterations per user, or whichever limit
+comes first. The preview shows the total planned or maximum attempts. For
+example, 10 users × 5 iterations is 50 request or journey attempts. Errors count
+as attempts. Live progress shows completed attempts against that target, and
+finished runs show their stop reason. A duration-limited result can stop below
+the count target. Iterations are unavailable in rate mode.
+
+Schema 7 bundles retain these settings and validate the count and stopping
+reason on import. Existing schema 2–6 bundles remain supported.

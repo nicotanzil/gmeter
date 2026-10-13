@@ -502,8 +502,12 @@ func (s *Server) importRun(w http.ResponseWriter, r *http.Request) {
 	if p.IsJourney() {
 		workload = "journeys"
 	}
-	if result == nil || (result.SchemaVersion < 2 || result.SchemaVersion > 6) || result.Workload != workload || result.URL != run.Config.URL || result.Mode != run.Config.Mode || result.Insecure != run.Config.Insecure || result.StartedAt.IsZero() || result.PlannedLoadSeconds != p.LoadDuration.Seconds() || result.LoadSeconds < 0 || result.LoadSeconds > result.PlannedLoadSeconds || result.TotalSeconds < result.LoadSeconds {
-		fail(w, 400, "Import a completed schema 2–6 run bundle exported with Run + timeline. Configuration and results must match.")
+	if result == nil || (result.SchemaVersion < 2 || result.SchemaVersion > 7) || result.Workload != workload || result.URL != run.Config.URL || result.Mode != run.Config.Mode || result.Insecure != run.Config.Insecure || result.StartedAt.IsZero() || result.PlannedLoadSeconds != p.LoadDuration.Seconds() || result.LoadSeconds < 0 || (p.LoadDuration > 0 && result.LoadSeconds > result.PlannedLoadSeconds) || result.TotalSeconds < result.LoadSeconds {
+		fail(w, 400, "Import a completed schema 2–7 run bundle exported with Run + timeline. Configuration and results must match.")
+		return
+	}
+	if err := result.ValidateIterations(p); err != nil {
+		fail(w, 400, "Run bundle stopping conditions: "+err.Error())
 		return
 	}
 	if len(run.Config.Workers) > 0 && ((result.SchemaVersion != 4 && result.SchemaVersion != 5 && result.SchemaVersion != 6) || result.Distribution == nil || len(result.Distribution.Workers) != len(run.Config.Workers)) {

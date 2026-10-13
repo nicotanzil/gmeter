@@ -47,6 +47,8 @@ type Result struct {
 	Insecure            bool                 `json:"insecure,omitempty"`
 	Mode                string               `json:"mode"`
 	ConcurrencyLimit    int                  `json:"concurrency_limit"`
+	Iterations          int                  `json:"iterations,omitempty"`
+	StopReason          string               `json:"stop_reason,omitempty"`
 	StartedAt           time.Time            `json:"started_at"`
 	PlannedLoadSeconds  float64              `json:"planned_load_seconds"`
 	LoadSeconds         float64              `json:"load_seconds"`
@@ -190,8 +192,13 @@ func Run(ctx context.Context, c config.Config, opts Options) (Result, error) {
 	if p.DiagnosticsEnabled() {
 		sampler = diagnostics.New()
 	}
-	loadCtx, cancelLoad := context.WithDeadline(ctx, start.Add(p.LoadDuration))
+	loadCtx, cancelLoad := context.WithCancel(ctx)
+	if p.LoadDuration > 0 {
+		cancelLoad()
+		loadCtx, cancelLoad = context.WithDeadline(ctx, start.Add(p.LoadDuration))
+	}
 	defer cancelLoad()
+	var draining atomic.Bool
 	stopProgress := make(chan struct{})
 	progressDone := make(chan struct{})
 	if opts.OnProgress != nil || sampler != nil {
@@ -206,7 +213,7 @@ func Run(ctx context.Context, c config.Config, opts Options) (Result, error) {
 				case <-ticker.C:
 					wallElapsed := time.Since(start)
 					elapsed := wallElapsed
-					if elapsed > p.LoadDuration {
+					if p.LoadDuration > 0 && elapsed > p.LoadDuration {
 						elapsed = p.LoadDuration
 					}
 					phaseIndex := progressPhase(p.Phases, elapsed)
@@ -216,7 +223,7 @@ func Run(ctx context.Context, c config.Config, opts Options) (Result, error) {
 						resources = &value
 					}
 					if opts.OnProgress != nil {
-						progress := Progress{Elapsed: elapsed, WallElapsed: wallElapsed, PhaseIndex: phaseIndex, PhaseName: p.Phases[phaseIndex].Name, TargetRate: p.Phases[phaseIndex].Rate, Draining: wallElapsed >= p.LoadDuration, Snapshot: r.total.Snapshot(elapsed), Journeys: journeyMetrics(r.totalJourneys.Snapshot(elapsed)), Workload: workload, Generator: resources}
+						progress := Progress{Elapsed: elapsed, WallElapsed: wallElapsed, PhaseIndex: phaseIndex, PhaseName: p.Phases[phaseIndex].Name, TargetRate: p.Phases[phaseIndex].Rate, Draining: draining.Load() || (p.LoadDuration > 0 && wallElapsed >= p.LoadDuration), Snapshot: r.total.Snapshot(elapsed), Journeys: journeyMetrics(r.totalJourneys.Snapshot(elapsed)), Workload: workload, Generator: resources}
 						if targetSampler != nil {
 							progress.Telemetry = targetSampler.Live()
 						}
@@ -231,14 +238,16 @@ func Run(ctx context.Context, c config.Config, opts Options) (Result, error) {
 	} else {
 		close(progressDone)
 	}
+	stopReason := "duration"
 	if p.Mode == "users" {
-		r.runUsers(ctx, loadCtx)
+		stopReason = r.runUsers(ctx, loadCtx)
 	} else {
 		r.runRate(ctx, loadCtx, start)
 	}
 	loadEnd := time.Now()
+	draining.Store(true)
 	loadElapsed := loadEnd.Sub(start)
-	if loadElapsed > p.LoadDuration {
+	if p.LoadDuration > 0 && loadElapsed > p.LoadDuration {
 		loadElapsed = p.LoadDuration
 	}
 	// Planned completion stops new arrivals but lets dispatched requests drain.
@@ -259,6 +268,7 @@ func Run(ctx context.Context, c config.Config, opts Options) (Result, error) {
 	result := Result{
 		SchemaVersion: 3, Name: p.Name, URL: p.URL, Method: p.Method, Generator: generator, Assignment: opts.Shard,
 		Mode: p.Mode, Insecure: p.Insecure, ConcurrencyLimit: limit, StartedAt: start.UTC(),
+		Iterations:         p.Iterations,
 		PlannedLoadSeconds: p.LoadDuration.Seconds(), LoadSeconds: loadElapsed.Seconds(),
 		TotalSeconds: time.Since(start).Seconds(), Interrupted: ctx.Err() != nil,
 		Snapshot: r.total.Snapshot(loadElapsed), Phases: make([]PhaseResult, 0, len(p.Phases)),
@@ -271,13 +281,20 @@ func Run(ctx context.Context, c config.Config, opts Options) (Result, error) {
 	if p.HasControlFlow() {
 		result.SchemaVersion = 6
 	}
+	if p.Iterations > 0 {
+		result.SchemaVersion = 7
+		result.StopReason = stopReason
+		if result.Interrupted {
+			result.StopReason = "interrupted"
+		}
+	}
 	var offset time.Duration
 	for i, phase := range p.Phases {
 		elapsed := loadElapsed - offset
 		if elapsed < 0 {
 			elapsed = 0
 		}
-		if elapsed > phase.Duration {
+		if phase.Duration > 0 && elapsed > phase.Duration {
 			elapsed = phase.Duration
 		}
 		targetRPS := phase.Rate
@@ -314,27 +331,34 @@ func progressPhase(phases []config.Phase, elapsed time.Duration) int {
 	return len(phases) - 1
 }
 
-func (r *runner) runUsers(ctx, loadCtx context.Context) {
-	deadline, _ := loadCtx.Deadline()
+func (r *runner) runUsers(ctx, loadCtx context.Context) string {
+	var users sync.WaitGroup
+	deadline, timed := loadCtx.Deadline()
 	for user := range r.plan.VUs {
 		r.wg.Add(1)
+		users.Add(1)
 		go func() {
 			defer r.wg.Done()
+			defer users.Done()
 			var session *http.Client
 			if r.plan.IsJourney() {
 				session = r.newSession()
 			}
 			iteration := int64(0)
-			for loadCtx.Err() == nil && time.Now().Before(deadline) {
+			for loadCtx.Err() == nil && (!timed || time.Now().Before(deadline)) && (r.plan.Iterations == 0 || iteration < int64(r.plan.Iterations)) {
+				iteration++
 				if r.plan.IsJourney() {
 					id := r.nextID.Add(1) - 1
 					selected := r.plan.ScenarioAt(id)
-					iteration++
 					r.startJourney(0, selected)
 					r.journey(ctx, time.Now(), 0, selected, id, int64(user+1), iteration, session)
 				} else {
 					r.start(0)
 					r.request(ctx, time.Now(), 0)
+				}
+				// A pause separates iterations; it must not delay the final completion.
+				if r.plan.Iterations > 0 && iteration == int64(r.plan.Iterations) {
+					return
 				}
 				if r.plan.UserThinkTime > 0 && !waitUntil(loadCtx, time.Now().Add(r.plan.UserThinkTime)) {
 					return
@@ -342,7 +366,17 @@ func (r *runner) runUsers(ctx, loadCtx context.Context) {
 			}
 		}()
 	}
-	<-loadCtx.Done()
+	done := make(chan struct{})
+	go func() { users.Wait(); close(done) }()
+	select {
+	case <-loadCtx.Done():
+		return "duration"
+	case <-done:
+		if loadCtx.Err() != nil || (timed && !time.Now().Before(deadline)) {
+			return "duration"
+		}
+		return "iterations"
+	}
 }
 
 func slots(d time.Duration, rate int) int64 {
@@ -594,6 +628,9 @@ func (r Result) Summary() string {
 		status = "FAIL"
 	}
 	summary := fmt.Sprintf("%s  %s\n%d completed requests · %.1f started req/s · %.2f%% request errors · %.2f%% arrivals dropped\nRequest latency: p50 %.2f ms · p95 %.2f ms · p99 %.2f ms\n", status, r.Name, r.Completed, r.StartedRPS, r.ErrorPercent, r.arrivalDropPercent(), r.Latency.P50MS, r.Latency.P95MS, r.Latency.P99MS)
+	if r.Iterations > 0 {
+		summary += fmt.Sprintf("%d users × %d iterations/user · stopped: %s · %.3fs load\n", r.ConcurrencyLimit, r.Iterations, r.StopReason, r.LoadSeconds)
+	}
 	if r.Insecure {
 		summary += "TLS verification disabled for workload HTTPS requests (insecure).\n"
 	}

@@ -172,7 +172,7 @@ globalThis.GmeterJourneyEditor = (() => {
       const c=current();if(!c)return;
       if(previewOnly){
         const s=step();inspector.append(el('h3',s?M.stepName(s,selected):c.name,'je-inspector-title'));
-        if(!s){inspector.append(el('p',`Cookies: ${config.cookies===false?'disabled':'enabled'} · ${config.vus} users · ${config.duration}`,'je-note'));return;}
+        if(!s){const stop=config.iterations?`${config.iterations} iterations/user${config.duration?' or '+config.duration:''}`:config.duration;inspector.append(el('p',`Cookies: ${config.cookies===false?'disabled':'enabled'} · ${config.vus} users · ${stop}`,'je-note'));return;}
         inspector.append(el('p',M.describe(s),'je-note'));
         const details=M.kind(s)==='request'?{method:s.method||'GET',url:s.url,headers:s.headers||{},body:s.body||'',success_statuses:s.success_statuses?.length===200?'200–399':s.success_statuses||[],assertions:s.assertions||[]}:M.kind(s)==='loop'?{count:s.loop.count,while:s.loop.while,max_iterations:s.loop.max_iterations}:s.if.condition;
         inspector.append(el('pre',JSON.stringify(details,null,2),'je-note'));return;

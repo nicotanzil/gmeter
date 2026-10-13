@@ -32,6 +32,36 @@ func TestCLIProducesReportsAndUsesFailureExitCode(t *testing.T) {
 	}
 }
 
+func TestCLIFiniteIterations(t *testing.T) {
+	var attempts atomic.Int64
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { attempts.Add(1) }))
+	defer s.Close()
+	for _, duration := range []string{"", "1h"} {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "finite.json")
+		args := []string{"run", "-url", s.URL, "-vus", "10", "-iterations", "5", "-quiet", "-out", path, "-html", filepath.Join(dir, "finite.html")}
+		if duration != "" {
+			args = append(args, "-duration", duration)
+		}
+		var out bytes.Buffer
+		before := attempts.Load()
+		if code := Run(context.Background(), args, &out, &out); code != 0 {
+			t.Fatalf("CLI code=%d: %s", code, &out)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var r engine.Result
+		if err := json.Unmarshal(data, &r); err != nil {
+			t.Fatal(err)
+		}
+		if attempts.Load()-before != 50 || r.Iterations != 5 || r.StopReason != "iterations" || (r.PlannedLoadSeconds > 0) != (duration != "") {
+			t.Fatalf("CLI iteration flags: %+v", r)
+		}
+	}
+}
+
 func TestCLIDistributedReportsAndTokenHandling(t *testing.T) {
 	token := "cli-test-worker-token-012345678901234567890123456789"
 	t.Setenv("GMETER_WORKER_TOKEN", token)

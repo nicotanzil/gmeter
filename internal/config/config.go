@@ -36,6 +36,7 @@ type Config struct {
 	Body                string            `json:"body,omitempty"`
 	Mode                string            `json:"mode"`
 	Duration            string            `json:"duration"`
+	Iterations          int               `json:"iterations,omitempty"`
 	VUs                 int               `json:"vus"`
 	Rate                int               `json:"rate"`
 	MaxInFlight         int               `json:"max_in_flight"`
@@ -115,6 +116,14 @@ func Load(r io.Reader) (Config, error) {
 	if strings.TrimSpace(string(data)) == "null" {
 		return Config{}, fmt.Errorf("configuration must be a JSON object")
 	}
+	// Count-only configurations must not inherit the duration default.
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return Config{}, err
+	}
+	if _, present := fields["duration"]; !present && c.Iterations > 0 {
+		c.Duration = ""
+	}
 	return c, nil
 }
 
@@ -161,6 +170,12 @@ func (c Config) Validate() (Plan, error) {
 	}
 	if c.Mode != "users" && c.Mode != "rate" {
 		return p, fmt.Errorf("mode must be users or rate")
+	}
+	if c.Iterations < 0 || c.Iterations > 1000000 {
+		return p, fmt.Errorf("iterations must be between 0 and 1000000 (0 means duration only)")
+	}
+	if c.Iterations > 0 && c.Mode != "users" {
+		return p, fmt.Errorf("iterations is only supported in users mode")
 	}
 	if c.VUs < 1 || c.VUs > 100000 {
 		return p, fmt.Errorf("vus must be between 1 and 100000")
@@ -218,9 +233,12 @@ func (c Config) Validate() (Plan, error) {
 			p.LoadDuration += d
 		}
 	} else {
-		d, err := positiveDuration("duration", c.Duration)
-		if err != nil {
-			return p, err
+		var d time.Duration
+		if c.Duration != "" || c.Iterations == 0 {
+			d, err = positiveDuration("duration", c.Duration)
+			if err != nil {
+				return p, err
+			}
 		}
 		if c.Mode == "rate" && (c.Rate < 1 || c.Rate > 1000000) {
 			return p, fmt.Errorf("rate must be between 1 and 1000000 requests/second")

@@ -438,17 +438,27 @@ func (a *analyzer) group(t *tree) {
 		a.cfg.VUs = v
 	}
 	controller := t.e.prop("ThreadGroup.main_controller")
-	if controller == nil || controller.value("LoopController.loops") != "-1" {
-		a.issue(t, "blocked", "Finite thread-group iterations need engine support. A journey loop is not an equivalent replacement.")
+	loops := 0
+	if controller != nil {
+		loops, err = strconv.Atoi(a.resolve(t, controller.value("LoopController.loops"), true))
 	}
-	if t.e.value("ThreadGroup.scheduler") != "true" {
-		a.issue(t, "blocked", "A duration-limited thread group is required. Unbounded execution is not imported.")
+	if controller == nil || err != nil || (loops != -1 && (loops < 1 || loops > 1000000)) || controller.value("LoopController.continue_forever") == "true" {
+		a.issue(t, "blocked", "Thread-group iterations must be 1–1000000, or -1 with a duration limit. Custom continue-forever controllers require manual review.")
+	} else if loops > 0 {
+		a.cfg.Iterations = loops
 	}
-	seconds, err := strconv.Atoi(a.resolve(t, t.e.value("ThreadGroup.duration"), true))
-	if err != nil || seconds < 1 || seconds > 86400 {
-		a.issue(t, "blocked", "Thread-group duration must be 1–86400 seconds.")
+	if t.e.value("ThreadGroup.scheduler") == "true" {
+		seconds, err := strconv.Atoi(a.resolve(t, t.e.value("ThreadGroup.duration"), true))
+		if err != nil || seconds < 1 || seconds > 86400 {
+			a.issue(t, "blocked", "Thread-group duration must be 1–86400 seconds.")
+		} else {
+			a.cfg.Duration = (time.Duration(seconds) * time.Second).String()
+		}
 	} else {
-		a.cfg.Duration = (time.Duration(seconds) * time.Second).String()
+		a.cfg.Duration = ""
+		if a.cfg.Iterations == 0 {
+			a.issue(t, "blocked", "A finite iteration count or scheduler duration is required. Unbounded execution is not imported.")
+		}
 	}
 	for _, name := range []string{"ThreadGroup.ramp_time", "ThreadGroup.delay"} {
 		value := t.e.value(name)
@@ -469,7 +479,14 @@ func (a *analyzer) group(t *tree) {
 		a.issue(t, "blocked", "Custom thread-group controllers are not supported.")
 	}
 	if a.report.Components[t.index].Status != "blocked" {
-		a.issue(t, "mapped", fmt.Sprintf("Converted workload: %d concurrent user(s) for %s. A failed request or assertion stops the current journey; the user starts its next journey while the load window remains open.", a.cfg.VUs, a.cfg.Duration))
+		stop := "for " + a.cfg.Duration
+		if a.cfg.Iterations > 0 {
+			stop = fmt.Sprintf("for %d journey iteration(s) per user", a.cfg.Iterations)
+			if a.cfg.Duration != "" {
+				stop += " or " + a.cfg.Duration + ", whichever comes first"
+			}
+		}
+		a.issue(t, "mapped", fmt.Sprintf("Converted workload: %d concurrent user(s) %s. A failed request or assertion stops the current journey and consumes one iteration. Admitted journeys drain under gmeter's runtime policies.", a.cfg.VUs, stop))
 	}
 }
 

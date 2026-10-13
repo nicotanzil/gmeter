@@ -62,7 +62,8 @@ of superiority over JMeter is justified until milestone 5 is complete.
 Read this file, README.md, docs/scenarios.md, docs/dashboard.md,
 docs/diagnostics.md, docs/workers.md, and docs/telemetry.md first. Continue
 the bundled JMeter parity program in docs/jmeter-parity.md. The next slice is
-CSV datasets and richer HTTP workflows. The journey canvas now edits
+user ramps/startup delay, followed by failure actions, then CSV datasets and
+richer HTTP workflows. The journey canvas now edits
 requests, nested branches and loops, checks, extractions, data, variables, and
 per-journey criteria. Foreach, once-only, switch, shared fragments, and richer
 failure actions remain in the execution-controls backlog.
@@ -84,8 +85,30 @@ journey arrivals and HTTP request attempts have separate counts and rates.
   original source retention, and persistent non-runnable migration drafts.
 - [x] Malformed/unsupported fixtures, counted native HTTP execution, persistence,
   authorization and source-provenance checks. See docs/jmx-import.md.
-- [ ] Broader JMX mappings and cross-engine conformance; finite iterations,
+- [ ] Broader JMX mappings and cross-engine conformance;
   ramps, CSV data, redirects, richer controllers and failure actions remain open.
+
+### Finite users iterations (after v0.3.0)
+
+- [x] Per-user outer request/journey attempts; duration, count, or first-limit stop.
+- [x] Builder stop choices, preview, progress, CLI flag, JSON and HTML reports.
+- [x] Finite JMX Thread Group loops with optional scheduler; no implicit time cap.
+- [x] Schema 7 stopping contract, native bundle round trips and consistency checks.
+- [ ] Next increment: user ramps and startup delay.
+- [ ] Following increments: failure actions, then CSV data.
+
+Validation: `make check build` passed, including vet, race tests, UI tests, and
+both binaries. Independent local-target tests cover exact per-user counts,
+failure consumption, isolated cookie retention, actual elapsed throughput,
+duration drain, and cancellation. Native schema 7 imports preserve stopping
+settings and reject mismatches. Browser checks passed 50/50 HTTP attempts,
+an early duration stop at 6/100, Stop during pacing, invalid count blocking,
+and a guided finite JMX import executing 5 journeys / 15 HTTP attempts.
+Builder and results fit at 320px; browser warning/error logs were empty.
+This verifies native conversion behavior, not cross-engine equivalence or
+comparative performance. The isolated review is at localhost:52740, with
+workspace data under `/private/tmp/gmeter-iterations-review` and QA images in
+ignored `work/iterations-qa/`.
 
 ### Executable control flow acceptance (10 October 2026)
 

@@ -37,7 +37,8 @@ Command-line flags override the corresponding scenario fields.
 | `headers` | empty | Request headers; `Host` is supported |
 | `body` | empty | Literal request body, up to 1 MiB |
 | `mode` | `users` | `users` or `rate` |
-| `duration` | `10s` | Load window; ignored when stages are present |
+| `duration` | `10s` for duration-only runs | Admission window; omitted or empty means no time limit when `iterations` is positive; ignored with stages |
+| `iterations` | `0` | Per-user request or journey attempts, 1–1000000; users mode only. `0` means duration only |
 | `vus` | `10` | Concurrent users in users mode |
 | `rate` | `0` | Integer arrivals/second in rate mode; use this or stages |
 | `max_in_flight` | `100` | Maximum concurrent workload arrivals in rate mode |
@@ -105,3 +106,27 @@ syntax and executable configuration, not reachability or credentials at runtime.
   leases, and incomplete results.
 - [Target-server telemetry](telemetry.md): exporter selection and credentials.
 - [Measurement definitions](measurements.md): arrival accounting and percentiles.
+
+## Finite iterations per user
+
+```json
+{
+  "url": "http://127.0.0.1:8787/work",
+  "mode": "users",
+  "vus": 10,
+  "iterations": 5
+}
+```
+
+Each user executes five attempts, for 50 total. With `scenarios`, an iteration is
+one selected journey, including its nested steps and loops. A failed attempt
+consumes an iteration; the next journey starts with fresh variables and the same
+user's cookie jar. Single-request workloads have no cookie jar.
+
+Omitting `duration` (or setting it to `""`) makes the run count-only. Supplying
+`duration: "1m"` stops new iterations at the count or time limit, whichever comes
+first. Existing duration-only configurations keep their behavior. Think time
+separates attempts; there is no pause after the final iteration. Request and
+journey deadlines still apply. **Stop** and process cancellation interrupt active
+work. Count-only runs can exceed 24 hours in total; each configured timeout or
+pause remains bounded by its own validation limits.

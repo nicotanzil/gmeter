@@ -58,7 +58,6 @@ func TestSupportedMappingAndRuntimeReview(t *testing.T) {
 func TestUnsupportedBehaviorNeverProducesConfiguration(t *testing.T) {
 	src := source(t)
 	for name, pair := range map[string][2]string{
-		"finite iterations":      {"<intProp name=\"LoopController.loops\">-1</intProp>", "<intProp name=\"LoopController.loops\">5</intProp>"},
 		"ramp":                   {"<stringProp name=\"ThreadGroup.ramp_time\">0</stringProp>", "<stringProp name=\"ThreadGroup.ramp_time\">10</stringProp>"},
 		"continue after failure": {"startnextloop", "continue"},
 		"redirects":              {"<boolProp name=\"HTTPSampler.follow_redirects\">false</boolProp>", "<boolProp name=\"HTTPSampler.follow_redirects\">true</boolProp>"},
@@ -87,6 +86,35 @@ func TestUnsupportedBehaviorNeverProducesConfiguration(t *testing.T) {
 				t.Fatalf("silently imported: %+v", r)
 			}
 		})
+	}
+}
+
+func TestFiniteThreadGroupIterations(t *testing.T) {
+	base := strings.Replace(source(t), `<intProp name="LoopController.loops">-1</intProp>`, `<intProp name="LoopController.loops">${__P(iterations,5)}</intProp>`, 1)
+	for _, scheduler := range []string{"true", "false"} {
+		src := strings.Replace(base, `<boolProp name="ThreadGroup.scheduler">true</boolProp>`, `<boolProp name="ThreadGroup.scheduler">`+scheduler+`</boolProp>`, 1)
+		r := analyze(t, src, jmx.Options{AcceptRuntime: true, Properties: map[string]string{"iterations": "4"}})
+		if !r.Ready || r.Config == nil || r.Config.Iterations != 4 || (r.Config.Duration != "") != (scheduler == "true") {
+			t.Fatalf("scheduler %s: %+v", scheduler, r)
+		}
+		var attempts int
+		s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { attempts++; fmt.Fprint(w, `{"ok":true}`) }))
+		r.Config.URL = s.URL
+		result, err := engine.Run(context.Background(), *r.Config, engine.Options{})
+		s.Close()
+		if err != nil || !result.Passed || result.Journeys.Completed != 4 || result.Completed != 12 || attempts != 12 || result.StopReason != "iterations" {
+			t.Fatalf("finite converted plan: attempts=%d err=%v result=%+v", attempts, err, result)
+		}
+	}
+	for _, loops := range []string{"0", "-2", "1000001", "invalid"} {
+		src := strings.Replace(source(t), `<intProp name="LoopController.loops">-1</intProp>`, `<intProp name="LoopController.loops">`+loops+`</intProp>`, 1)
+		if r := analyze(t, src, jmx.Options{AcceptRuntime: true}); r.Ready || r.Config != nil || r.Blockers == 0 {
+			t.Fatalf("invalid count %s imported", loops)
+		}
+	}
+	src := strings.Replace(source(t), `<boolProp name="ThreadGroup.scheduler">true</boolProp>`, `<boolProp name="ThreadGroup.scheduler">false</boolProp>`, 1)
+	if r := analyze(t, src, jmx.Options{AcceptRuntime: true}); r.Ready || r.Config != nil || r.Blockers == 0 {
+		t.Fatal("unbounded thread group imported")
 	}
 }
 func TestPropertiesAndDisabledSubtrees(t *testing.T) {

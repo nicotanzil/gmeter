@@ -332,7 +332,7 @@ before any traffic. Metrics storage scales with static nodes, not iterations.
 
 Flows with any branch or loop use **result schema 6**, locally, on workers,
 and with telemetry. Sequential tests retain schemas 3/4/5. Earlier configuration
-files continue to work, and dashboard imports accept schemas 2–6. Run current
+files continue to work, and dashboard imports accept schemas 2–7. Run current
 binaries on all workers; older binaries reject the new configuration fields.
 
 For each request node in schema 6:
