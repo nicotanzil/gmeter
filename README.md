@@ -82,7 +82,14 @@ Watch delivered traffic, latency, errors, and missed arrivals, then inspect the
 final acceptance checks. Generator diagnostics and optional server telemetry
 provide additional context.
 
+![gmeter walkthrough: validate a local test, watch live measurements, and review completed results](docs/images/walkthrough.gif)
+
+<details>
+<summary>Completed run screenshot</summary>
+
 ![gmeter completed local demo run showing measurements, checks, and traffic charts](docs/images/run-results.jpg)
+
+</details>
 
 <details>
 <summary>Test builder and new-user walkthrough</summary>
@@ -99,8 +106,8 @@ troubleshooting. Contextual help returns to the builder without replacing a draf
 
 </details>
 
-Screenshots use the bundled local demo. Their measurements illustrate the app;
-they are not benchmarks. [Screenshot capture notes](docs/images/README.md).
+Screenshots and the recording use the bundled local demo. Their measurements
+illustrate the app; they are not benchmarks. [Capture notes](docs/images/README.md).
 
 ## What you can do today
 
