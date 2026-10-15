@@ -195,3 +195,28 @@ Journey failures, HTTP failures and stopped users measure different events.
 Bundle imports validate schema, matching policy, bounded and monotonic stopped
 counts, and reject a passing result with stopped users. These are native engine
 measurements, not proof of JMeter timing or throughput equivalence.
+
+## Test-wide stopping measurements
+
+`stop_test` and `stop_test_now` users-mode policies use schema 10, retaining all
+schema 9 measurements and adding `failure_policy.test_stopped` when triggered.
+The flag appears in progress observations and final results. It records one
+idempotent test stop, even if several users fail together. `users_stopped` remains
+reserved for the per-user action and is zero for these test-wide policies.
+
+An error stop fails `test_stopped_on_error` and `run_completed`. Its final reason
+is `test_stopped` or `test_stopped_now`, and `interrupted` stays false unless the
+caller also cancels the run. Manual Stop after an error stop sets `interrupted`
+and retains the error-stop flag. A failure discovered while draining after a
+duration boundary still triggers the configured policy and records its reason.
+
+Graceful stops freeze admission seconds and throughput denominators while other
+admitted journeys finish. Immediate stops record canceled active attempts and
+skipped unvisited journey nodes. Never-started users and future iterations create
+neither HTTP attempts nor missed arrivals. Total time includes drain and bounded
+final observer collection. No request bodies or response samples are retained by
+this feature.
+
+Bundle import requires matching policy, schema, reason and mandatory check;
+rejects passing error stops; checks monotonic stop flags and a matching final
+observation; and requires failed work before a stop flag can become true.

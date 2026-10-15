@@ -7,9 +7,9 @@ let selectedRuns = new Set(), timer = null, polling = false, telemetryFormError 
 let coverage = [];
 const fmt = (value, digits = 1) => Number(value || 0).toLocaleString(undefined, {maximumFractionDigits: digits, minimumFractionDigits: digits});
 const count = value => Number(value || 0).toLocaleString();
-const errorActions = {next_iteration:'Start next iteration',continue:'Continue journey',stop_user:'Stop this user'};
-const errorHelp = {next_iteration:'Skip the remaining journey steps, then start the next iteration.',continue:'Attempt later steps and loop iterations. Failed requests and journeys still count as errors. Failed verification publishes no extracted values.',stop_user:'Skip the remaining journey and stop this user’s future iterations. Other users continue. Any user stopped on error fails the run.'};
-const stopReasons = {iterations:'iterations completed',duration:'duration reached',interrupted:'interrupted',users_stopped:'users stopped after errors'};
+const errorActions = {next_iteration:'Start next iteration',continue:'Continue journey',stop_user:'Stop this user',stop_test:'Stop test gracefully',stop_test_now:'Stop test immediately'};
+const errorHelp = {next_iteration:'Skip the remaining journey steps, then start the next iteration.',continue:'Attempt later steps and loop iterations. Failed requests and journeys still count as errors. Failed verification publishes no extracted values.',stop_user:'Skip the remaining journey and stop this user’s future iterations. Other users continue. Any user stopped on error fails the run.',stop_test:'End the failing journey and stop new users and iterations. Other admitted journeys finish under their deadlines. The test fails.',stop_test_now:'Cancel active requests, journey pauses, and pending user starts. Keep partial results and fail the test.'};
+const stopReasons = {iterations:'iterations completed',duration:'duration reached',interrupted:'interrupted',users_stopped:'users stopped after errors',test_stopped:'test stopped gracefully after error',test_stopped_now:'test stopped immediately after error'};
 const active = run => run && ['running', 'stopping'].includes(run.status);
 const node = (tag, text, className) => { const e = document.createElement(tag); if (text !== undefined) e.textContent = text; if (className) e.className = className; return e; };
 const builderGrid = $('builder-settings'), editorPanel = builderGrid.querySelector('.editor-panel');
@@ -325,6 +325,7 @@ function updatePreview(c) {
   const list = node('div', undefined, 'preview-check-list');
   for (const [value, label] of values) if (enabled(value)) list.append(node('span', label(value)));
   if (c.on_error === 'stop_user') list.append(node('span', 'No users stopped on error'));
+  if (['stop_test','stop_test_now'].includes(c.on_error)) list.append(node('span', 'Test must not stop on error'));
   if (!list.childElementCount) list.append(node('p', 'No pass criteria enabled.', 'helper'));
   checks.append(list); $('plan-preview').append(checks);
 }
@@ -504,7 +505,11 @@ function renderRun() {
     $('elapsed').textContent = `${schedule.waiting && active(run) ? 'Waiting: ' : 'Startup: '}${fmt(schedule.startup_seconds)} / ${fmt(schedule.planned_startup_seconds)}s · ${load}${remainder > .05 ? ' · ' + fmt(remainder) + 's drain / collection' : ''} · ${count(schedule.users.active)} active users · ${count(schedule.users.started)} / ${count(schedule.users.planned)} started`;
   }
   const failure = run.result?.failure_policy || latest.failure_policy;
-  if (failure) $('elapsed').textContent += ` · ${errorActions[failure.action]} · ${count(failure.users_stopped)} users stopped on error`;
+  if (failure) {
+    $('elapsed').textContent += ' · ' + errorActions[failure.action];
+    if (['stop_test','stop_test_now'].includes(failure.action)) { if (failure.test_stopped) $('elapsed').textContent += failure.action === 'stop_test' && active(run) ? ' · Error stop: draining admitted journeys' : ' · Test stopped on error'; }
+    else $('elapsed').textContent += ` · ${count(failure.users_stopped)} users stopped on error`;
+  }
   if (!schedule && !run.config.iterations && run.result?.stop_reason) $('elapsed').textContent += ' · Stopped: ' + (stopReasons[run.result.stop_reason] || run.result.stop_reason);
   $('metric-rps').textContent = fmt(r.started_rps); $('metric-requests').textContent = `${count(r.started)} HTTP attempts · ${count(r.in_flight)} in flight`;
   $('metric-latency').textContent = r.latency?.samples ? fmt(r.latency.p95_ms) + ' ms' : '—';

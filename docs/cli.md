@@ -60,7 +60,7 @@ precedence over an unspecified flag.
 | `-iterations` | `0` | Iterations per user, users mode only. A positive explicit flag clears duration unless `-duration` is also supplied, including when overriding a file |
 | `-ramp-up` | `0s` effective | Stagger virtual-user starts; users mode only; 0–24h |
 | `-startup-delay` | `0s` effective | Wait before the load window; users mode only; 0–24h |
-| `-on-error` | `next_iteration` effective | Users mode: `next_iteration`, `continue`, or `stop_user`; an explicit empty string resets the default |
+| `-on-error` | `next_iteration` effective | Users mode: `next_iteration`, `continue`, `stop_user`, `stop_test`, or `stop_test_now`; an explicit empty string resets the default |
 | `-vus` | `10` | Concurrent users in users mode |
 | `-rate` | `0` | Workload arrivals/s; explicitly setting it removes phases |
 | `-max-in-flight` | `100` | Concurrent requests or whole journeys in rate mode |

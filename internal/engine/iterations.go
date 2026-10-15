@@ -14,7 +14,7 @@ func (r Result) ValidateIterations(p config.Plan) error {
 	if err := r.validateUserSchedule(p); err != nil {
 		return err
 	}
-	if r.Iterations != p.Iterations || (p.Iterations > 0 && (r.SchemaVersion < 7 || r.SchemaVersion > 9)) || (r.SchemaVersion == 7 && p.Iterations == 0) {
+	if r.Iterations != p.Iterations || (p.Iterations > 0 && (r.SchemaVersion < 7 || r.SchemaVersion > 10)) || (r.SchemaVersion == 7 && p.Iterations == 0) {
 		return fmt.Errorf("iteration settings or schema disagree")
 	}
 	if p.Iterations == 0 && !p.HasUserSchedule() && !p.HasFailurePolicy() {
@@ -50,6 +50,10 @@ func (r Result) ValidateIterations(p config.Plan) error {
 	case "users_stopped":
 		if r.Interrupted || r.FailurePolicy == nil || r.FailurePolicy.Action != config.StopUser || r.FailurePolicy.UsersStopped == 0 {
 			return fmt.Errorf("users_stopped requires a user stopped by the failure action")
+		}
+	case "test_stopped", "test_stopped_now":
+		if r.Interrupted || r.FailurePolicy == nil || !r.FailurePolicy.TestStopped {
+			return fmt.Errorf("test stop requires an error-triggered stop")
 		}
 	default:
 		return fmt.Errorf("invalid iteration stop reason")

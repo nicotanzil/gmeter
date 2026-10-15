@@ -62,7 +62,7 @@ of superiority over JMeter is justified until milestone 5 is complete.
 Read this file, README.md, docs/scenarios.md, docs/dashboard.md,
 docs/diagnostics.md, docs/workers.md, and docs/telemetry.md first. Continue
 the bundled JMeter parity program in docs/jmeter-parity.md. The next slice is
-test-wide failure actions (graceful/immediate stop), then CSV datasets and
+CSV datasets, then
 richer HTTP workflows. The journey canvas now edits
 requests, nested branches and loops, checks, extractions, data, variables, and
 per-journey criteria. Foreach, once-only, switch, shared fragments, and richer
@@ -95,7 +95,7 @@ journey arrivals and HTTP request attempts have separate counts and rates.
 - [x] Finite JMX Thread Group loops with optional scheduler; no implicit time cap.
 - [x] Schema 7 stopping contract, native bundle round trips and consistency checks.
 - [x] Next increment: user ramps and startup delay.
-- [ ] Following increments: test-wide failure actions, then CSV data.
+- [ ] Following increments: CSV data and richer HTTP workflows.
 
 Validation: `make check build` passed, including vet, race tests, UI tests, and
 both binaries. Independent local-target tests cover exact per-user counts,
@@ -110,6 +110,34 @@ comparative performance. The isolated review is at localhost:52740, with
 workspace data under `/private/tmp/gmeter-iterations-review` and QA images in
 ignored `work/iterations-qa/`.
 
+### Test-wide failure actions (15 October 2026)
+
+- [x] Users-mode graceful/immediate error stops with separate admission/work contexts.
+- [x] Freeze load denominators during graceful drain; retain partial counts.
+- [x] Cancel future ramp starts; immediate also cancels active HTTP and pauses.
+- [x] Distinguish manual interruption; require a failed stopping check.
+- [x] Builder, canvas guidance, live results, CLI and standalone HTML.
+- [x] Schema 10 bundles with policy/reason/check/timeline validation.
+- [x] JMX Stop Test/Stop Test Now mappings with explicit native drain differences.
+- [ ] Next: CSV datasets and sharing/end-of-file semantics.
+
+Focused checks cover active-peer drain/cancellation, journey pauses, future user
+starts, frozen progress, manual interruption during drain, disabled thresholds,
+healthy completion, journey-level errors, JMX conversion and portable results.
+`make check build` passed all race tests, vet, UI checks and both builds. Final
+CLI summary and late failure during duration drain checks also passed with race
+instrumentation. Browser fixtures observed a 0.3s admission window with 3s
+of graceful drain (5 HTTP attempts), immediate cancellation (2 attempts, one
+canceled), and manual Stop during graceful drain (interrupted with error flag
+retained). Only 2/3 planned users started; future ramp starts were canceled.
+Error thresholds were disabled, but both policies failed their mandatory check.
+The guided JMX review showed the graceful sampler/journey difference at review
+and save; the converted plan stopped after 1/2 journeys and one HTTP attempt.
+The 320px controls fit without page overflow and browser warning/error logs
+were empty. Review: localhost:53140, workspace `/private/tmp/gmeter-test-stop-review`,
+QA images in ignored `work/test-stop-qa/`. Checkpoint before this increment:
+`2fa5450`. No cross-engine equivalence is claimed.
+
 ### User failure actions (14 October 2026)
 
 - [x] Default next iteration, continue journey, and stop this user in users mode.
@@ -118,7 +146,7 @@ ignored `work/iterations-qa/`.
 - [x] Mandatory stopped-user check, schema 9 metadata and bundle validation.
 - [x] Builder controls, preview, journey guidance, live results, CLI and HTML.
 - [x] Explicit JMX Continue/Start Next Thread Loop/Stop Thread mappings.
-- [ ] Next: test-wide graceful/immediate error stops, then CSV datasets.
+- [ ] Next: CSV datasets.
 
 Focused execution tests cover nested loops, deadlines, safety limits, missing
 values after failed verification, peer isolation, cancellation, JMX conversion,
@@ -140,7 +168,7 @@ is claimed.
 - [x] Builder controls, schedule preview/chart, CLI flags, starter and guides.
 - [x] JMX default ramp/scheduler delay conversion with explicit millisecond rounding.
 - [x] Schema 8 schedule contract, native bundle import validation and old schemas.
-- [ ] Next increment: test-wide failure actions, then CSV datasets.
+- [ ] Next increment: CSV datasets.
 
 Validation: `make check build` passed vet, all race tests, UI tests and both
 binaries. Follow-up dashboard/starter and duration-only tests passed after final

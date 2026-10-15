@@ -197,7 +197,7 @@
       "name": "Concurrent users and thread lifecycle",
       "group": "Scheduling",
       "status": "partial",
-      "detail": "Fixed users repeat for a duration, a finite number of iterations per user, or whichever limit comes first. User ramps and startup delay are supported, with sampled active-user counts. Users can continue, start the next iteration, or stop only the failed user. No independent thread groups or test-wide error stop.",
+      "detail": "Fixed users repeat for a duration, a finite number of iterations per user, or whichever limit comes first. User ramps and startup delay are supported, with sampled active-user counts. Users can continue, start the next iteration, stop one user, or stop the test gracefully/immediately. No independent thread groups or distributed users.",
       "stage": "2 \u00b7 Controls",
       "source": "https://jmeter.apache.org/usermanual/build-web-test-plan.html",
       "evidence": "internal/engine/engine.go"
@@ -297,7 +297,7 @@
       "name": "Flow actions and failure policies",
       "group": "Control flow",
       "status": "partial",
-      "detail": "Users mode supports continue, next-iteration, and stop-user actions, preserving errors and stopped-user counts. Manual Stop cancels work. No programmable break/continue controllers, restart-user, or graceful/immediate test-wide error actions.",
+      "detail": "Users mode supports continue, next-iteration, stop-user and graceful/immediate test stops, preserving errors and partial results. Graceful drains other admitted journeys; JMX review explains the difference from sampler-level stopping. No programmable break/continue controllers, restart-user, or rate/distributed error policies.",
       "stage": "2 \u00b7 Controls",
       "source": "https://jmeter.apache.org/usermanual/component_reference.html",
       "evidence": "internal/engine/journey.go"

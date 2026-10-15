@@ -41,7 +41,7 @@ Command-line flags override the corresponding scenario fields.
 | `iterations` | `0` | Per-user request or journey attempts, 1–1000000; users mode only. `0` means duration only |
 | `ramp_up` | `0s` effective | Users mode: stagger starts at ramp × user index ÷ users; 0–24h |
 | `startup_delay` | `0s` effective | Users mode: wait before the load duration starts; 0–24h |
-| `on_error` | `next_iteration` | `next_iteration`, `continue`, or `stop_user`; nondefault actions require users mode; see below |
+| `on_error` | `next_iteration` | `next_iteration`, `continue`, `stop_user`, `stop_test`, or `stop_test_now`; nondefault actions require users mode; see below |
 | `vus` | `10` | Concurrent users in users mode |
 | `rate` | `0` | Integer arrivals/second in rate mode; use this or stages |
 | `max_in_flight` | `100` | Maximum concurrent workload arrivals in rate mode |
@@ -165,6 +165,8 @@ extraction and assertion failures, and request-template failures.
 | `next_iteration` (default) | Skip remaining steps | This user starts the next iteration after its configured pacing |
 | `continue` | Attempt later steps and loop iterations; the journey remains failed | This user continues normally |
 | `stop_user` | Skip remaining steps | End this user; other users and pending ramp starts continue |
+| `stop_test` | End the failing journey; other admitted journeys finish under their deadlines | Stop all new users and iterations |
+| `stop_test_now` | Cancel active requests and journey pauses | Stop all new users and iterations, including pending ramp starts |
 
 Single-request tests have no remaining steps, so `continue` behaves like the
 default. Every attempted request or journey consumes one outer iteration,
@@ -183,5 +185,20 @@ a run that silently abandoned future work. Once all users finish or stop, the
 run ends early with `users_stopped`; a duration limit or manual Stop can end it
 first. No errors are erased by choosing a different action.
 
-Rate/distributed workloads retain the default action. Test-wide graceful and
-immediate error stops and restarting a user are not implemented yet.
+Test-wide actions also apply to journey-level errors, such as a condition error
+or journey deadline. An error-triggered test stop fails the mandatory
+`test_stopped_on_error` check even with error thresholds disabled. The run is
+partial: it records `test_stopped` or `test_stopped_now`, rather than pretending
+that every configured iteration ran. The failing journey skips its remaining
+steps in either policy. Graceful stopping lets other admitted journeys finish,
+including later HTTP requests and pauses. Immediate stopping cancels workload
+contexts; it cannot roll back a request the server already received.
+
+During graceful drain the load duration and throughput denominator freeze at
+admission closure; drain time remains in total wall time. Pressing **Stop** or
+Ctrl+C can interrupt a graceful drain and is recorded as manual interruption,
+while retaining the earlier error-stop flag. Diagnostics and telemetry retain
+their existing bounded final collection behavior.
+
+Rate/distributed workloads retain the default action. Restarting a user and
+independent group stops are not implemented yet.

@@ -112,6 +112,7 @@ type runner struct {
 	usersStarted  atomic.Int64
 	usersFinished atomic.Int64
 	usersStopped  atomic.Int64
+	testStop      *testStop
 }
 
 func Run(ctx context.Context, c config.Config, opts Options) (Result, error) {
@@ -208,6 +209,11 @@ func Run(ctx context.Context, c config.Config, opts Options) (Result, error) {
 		loadCtx, cancelLoad = context.WithCancel(ctx)
 	}
 	defer cancelLoad()
+	workCtx, cancelWork := context.WithCancel(ctx)
+	defer cancelWork()
+	if p.HasTestStopPolicy() {
+		r.testStop = &testStop{start: start, action: p.ErrorAction(), closeAdmission: cancelLoad, cancelWork: cancelWork}
+	}
 	var draining atomic.Bool
 	stopProgress := make(chan struct{})
 	progressDone := make(chan struct{})
@@ -222,10 +228,7 @@ func Run(ctx context.Context, c config.Config, opts Options) (Result, error) {
 					return
 				case <-ticker.C:
 					wallElapsed := time.Since(start)
-					elapsed := max(time.Duration(0), wallElapsed-p.UserStartupDelay)
-					if p.LoadDuration > 0 && elapsed > p.LoadDuration {
-						elapsed = p.LoadDuration
-					}
+					elapsed := r.loadElapsed(wallElapsed)
 					phaseIndex := progressPhase(p.Phases, elapsed)
 					var resources *diagnostics.Resources
 					if sampler != nil {
@@ -250,19 +253,22 @@ func Run(ctx context.Context, c config.Config, opts Options) (Result, error) {
 	}
 	stopReason := "duration"
 	if p.Mode == "users" {
-		stopReason = r.runUsers(ctx, loadCtx, start)
+		stopReason = r.runUsers(workCtx, loadCtx, start)
 	} else {
 		r.runRate(ctx, loadCtx, start)
 	}
 	loadEnd := time.Now()
 	draining.Store(true)
-	loadElapsed := max(time.Duration(0), loadEnd.Sub(loadStart))
-	if p.LoadDuration > 0 && loadElapsed > p.LoadDuration {
-		loadElapsed = p.LoadDuration
-	}
+	loadElapsed := r.loadElapsed(loadEnd.Sub(start))
 	// Planned completion stops new arrivals but lets dispatched requests drain.
 	// Parent cancellation (e.g. Ctrl+C) also aborts requests in progress.
 	r.wg.Wait()
+	if r.testStop.elapsed() > 0 {
+		stopReason = "test_stopped"
+		if p.ErrorAction() == config.StopTestNow {
+			stopReason = "test_stopped_now"
+		}
+	}
 	close(stopProgress)
 	<-progressDone
 	var targetTelemetry *telemetry.Summary
@@ -300,6 +306,9 @@ func Run(ctx context.Context, c config.Config, opts Options) (Result, error) {
 		}
 		if p.HasFailurePolicy() {
 			result.SchemaVersion = 9
+		}
+		if p.HasTestStopPolicy() {
+			result.SchemaVersion = 10
 		}
 		result.StopReason = stopReason
 		if result.Interrupted {
@@ -393,6 +402,10 @@ func (r *runner) runUsers(ctx, loadCtx context.Context, start time.Time) string 
 				}
 				if failure != "" && ctx.Err() == nil && r.plan.ErrorAction() == config.StopUser {
 					r.usersStopped.Add(1)
+					return
+				}
+				if failure != "" && ctx.Err() == nil && r.testStop != nil {
+					r.testStop.trigger()
 					return
 				}
 				// A pause separates iterations; it must not delay the final completion.
@@ -628,13 +641,16 @@ func waitUntil(ctx context.Context, at time.Time) bool {
 }
 
 func (r *Result) evaluate(p config.Plan) {
-	completed := !r.Interrupted && (r.Distribution == nil || r.Distribution.Complete)
+	completed := !r.Interrupted && (r.Distribution == nil || r.Distribution.Complete) && (r.FailurePolicy == nil || !r.FailurePolicy.TestStopped)
 	r.Checks = []Check{
 		{Name: "run_completed", Passed: completed, Actual: boolNumber(completed), Limit: 1, Unit: "boolean"},
 		{Name: "requests_completed", Passed: r.Completed > 0, Actual: float64(r.Completed), Limit: 1, Unit: "requests"},
 	}
 	if r.FailurePolicy != nil && r.FailurePolicy.Action == config.StopUser {
 		r.Checks = append(r.Checks, Check{Name: "users_stopped_on_error", Passed: r.FailurePolicy.UsersStopped == 0, Actual: float64(r.FailurePolicy.UsersStopped), Limit: 0, Unit: "users"})
+	}
+	if p.HasTestStopPolicy() {
+		r.Checks = append(r.Checks, Check{Name: "test_stopped_on_error", Passed: !r.FailurePolicy.TestStopped, Actual: boolNumber(r.FailurePolicy.TestStopped), Limit: 0, Unit: "boolean"})
 	}
 	if p.P95Limit > 0 {
 		r.Checks = append(r.Checks, Check{Name: "p95", Passed: r.Completed > 0 && r.Latency.P95MS <= float64(p.P95Limit)/1e6, Actual: r.Latency.P95MS, Limit: float64(p.P95Limit) / 1e6, Unit: "ms"})
@@ -678,7 +694,14 @@ func (r Result) Summary() string {
 		summary += fmt.Sprintf("%d users × %d iterations/user · stopped: %s · %.3fs load\n", r.ConcurrencyLimit, r.Iterations, r.StopReason, r.LoadSeconds)
 	}
 	if f := r.FailurePolicy; f != nil {
-		summary += fmt.Sprintf("Failure action: %s · %d users stopped on error\n", f.Action, f.UsersStopped)
+		summary += fmt.Sprintf("Failure action: %s", f.Action)
+		if f.Action != config.StopTest && f.Action != config.StopTestNow {
+			summary += fmt.Sprintf(" · %d users stopped on error", f.UsersStopped)
+		}
+		summary += "\n"
+		if f.TestStopped {
+			summary += "Test stopped on error: " + r.StopReason + "\n"
+		}
 	}
 	if s := r.UserSchedule; s != nil {
 		summary += fmt.Sprintf("Startup wait: %.3fs / %.3fs planned · user ramp %.3fs · %d/%d users started · %d finished · stopped: %s\n", s.StartupSeconds, s.PlannedStartupSeconds, s.RampUpSeconds, s.Users.Started, s.Users.Planned, s.Users.Finished, r.StopReason)

@@ -502,8 +502,8 @@ func (s *Server) importRun(w http.ResponseWriter, r *http.Request) {
 	if p.IsJourney() {
 		workload = "journeys"
 	}
-	if result == nil || (result.SchemaVersion < 2 || result.SchemaVersion > 9) || result.Workload != workload || result.URL != run.Config.URL || result.Mode != run.Config.Mode || result.Insecure != run.Config.Insecure || result.StartedAt.IsZero() || result.PlannedLoadSeconds != p.LoadDuration.Seconds() || result.LoadSeconds < 0 || (p.LoadDuration > 0 && result.LoadSeconds > result.PlannedLoadSeconds) || result.TotalSeconds < result.LoadSeconds {
-		fail(w, 400, "Import a completed schema 2–9 run bundle exported with Run + timeline. Configuration and results must match.")
+	if result == nil || (result.SchemaVersion < 2 || result.SchemaVersion > 10) || result.Workload != workload || result.URL != run.Config.URL || result.Mode != run.Config.Mode || result.Insecure != run.Config.Insecure || result.StartedAt.IsZero() || result.PlannedLoadSeconds != p.LoadDuration.Seconds() || result.LoadSeconds < 0 || (p.LoadDuration > 0 && result.LoadSeconds > result.PlannedLoadSeconds) || result.TotalSeconds < result.LoadSeconds {
+		fail(w, 400, "Import a completed schema 2–10 run bundle exported with Run + timeline. Configuration and results must match.")
 		return
 	}
 	if err := result.ValidateIterations(p); err != nil {
@@ -533,6 +533,7 @@ func (s *Server) importRun(w http.ResponseWriter, r *http.Request) {
 	var previous float64 = -1
 	var previousUsers engine.UserCounts
 	var previousStopped int64
+	var previousTestStop bool
 	for _, sample := range run.Samples {
 		if sample.ElapsedSeconds < 0 || sample.ElapsedSeconds < previous || sample.ElapsedSeconds > result.TotalSeconds || sample.LoadSeconds < 0 || sample.LoadSeconds > result.LoadSeconds || len(sample.Workers) > config.MaxWorkers {
 			fail(w, 400, "Run bundle timeline is invalid.")
@@ -564,11 +565,12 @@ func (s *Server) importRun(w http.ResponseWriter, r *http.Request) {
 			if p.IsJourney() {
 				failed = sample.Journeys.Failed
 			}
-			if f.Validate(p.Config, failed) != nil || f.UsersStopped < previousStopped || f.UsersStopped > result.FailurePolicy.UsersStopped {
+			if f.Validate(p.Config, failed) != nil || f.UsersStopped < previousStopped || f.UsersStopped > result.FailurePolicy.UsersStopped || (previousTestStop && !f.TestStopped) || (f.TestStopped && !result.FailurePolicy.TestStopped) || (sample.ElapsedSeconds == result.TotalSeconds && f.TestStopped != result.FailurePolicy.TestStopped) {
 				fail(w, 400, "Run bundle failure-policy timeline is invalid.")
 				return
 			}
 			previousStopped = f.UsersStopped
+			previousTestStop = f.TestStopped
 		}
 		previous = sample.ElapsedSeconds
 	}

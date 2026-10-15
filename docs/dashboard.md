@@ -226,7 +226,7 @@ regression verdict.
 | Run + timeline | Configuration, final results, retained timeline | Yes |
 
 Use **Import JSON** or **Import run** for run bundles. Imports require final
-schema 2–9 results, validate configuration, final count equations, and telemetry
+schema 2–10 results, validate configuration, final count equations, and telemetry
 observation bounds/accounting when present, have a 16 MiB
 limit, and assign a new ID. They send no traffic. Imported runs are marked
 **IMPORTED**; their original traffic has not been independently verified.
@@ -353,3 +353,21 @@ error. A stopped user fails the run even with disabled error thresholds. History
 comparison flags a different failure action. Schema 9 run bundles preserve the
 policy and validate its counts and timeline on import; older schemas remain
 supported. See [configuration](configuration.md#failure-actions) for details.
+
+## Test-wide error stops
+
+Under **Concurrent users → Traffic options → After a failed request**, choose
+**Stop test gracefully** or **Stop test immediately**. Graceful ends the failing
+journey, closes new users and iterations, and drains other admitted journeys.
+Immediate cancels their requests and pauses as well. Future ramp starts are
+canceled by both. The preview explains the policy and shows the mandatory
+**Test must not stop on error** criterion.
+
+Live results show the error stop while graceful work drains, with a frozen load
+window. Final results identify graceful/immediate error stopping and keep partial
+request, journey and user counts. These stops fail the run even when error
+thresholds are disabled. Manual **Stop run** still cancels a graceful drain and
+records an interruption; it does not erase the error stop.
+
+New policies use schema 10 bundles, with a monotonic `test_stopped` flag and a
+mandatory matching check. Older policies and schemas retain their formats.

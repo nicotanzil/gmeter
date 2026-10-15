@@ -104,6 +104,27 @@ func TestCLIFailureActionReports(t *testing.T) {
 	}
 }
 
+func TestCLITestStopReports(t *testing.T) {
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.Error(w, "failed", 503) }))
+	defer s.Close()
+	for _, action := range []string{"stop_test", "stop_test_now"} {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "stop.json")
+		html := filepath.Join(dir, "stop.html")
+		var out bytes.Buffer
+		code := Run(context.Background(), []string{"run", "-url", s.URL, "-vus", "4", "-iterations", "3", "-ramp-up", "1h", "-on-error", action, "-quiet", "-out", path, "-html", html}, &out, &out)
+		data, _ := os.ReadFile(path)
+		var r engine.Result
+		if err := json.Unmarshal(data, &r); err != nil {
+			t.Fatal(err)
+		}
+		page, _ := os.ReadFile(html)
+		if code != 1 || r.Interrupted || r.SchemaVersion != 10 || r.Completed != 1 || !r.FailurePolicy.TestStopped || !strings.Contains(out.String(), "Test stopped on error:") || !strings.Contains(string(page), "Error-triggered test stop: yes") || !strings.Contains(string(page), "test stopped") {
+			t.Fatalf("test-stop reports: code=%d %+v %s", code, r, &out)
+		}
+	}
+}
+
 func TestCLIDistributedReportsAndTokenHandling(t *testing.T) {
 	token := "cli-test-worker-token-012345678901234567890123456789"
 	t.Setenv("GMETER_WORKER_TOKEN", token)

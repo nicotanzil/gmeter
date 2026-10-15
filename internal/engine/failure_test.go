@@ -191,15 +191,21 @@ func TestContinueHonorsRequestTimeoutJourneyDeadlineAndSafetyLimits(t *testing.T
 	}
 }
 
-func TestManualCancellationDoesNotStopUserOnError(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { cancel(); <-r.Context().Done() }))
-	defer s.Close()
-	c := finiteConfig(s.URL)
-	c.VUs, c.OnError = 1, config.StopUser
-	r, err := Run(ctx, c, Options{})
-	if err != nil || !r.Interrupted || r.StopReason != "interrupted" || r.FailurePolicy.UsersStopped != 0 {
-		t.Fatalf("cancellation: %v %+v", err, r)
+func TestManualCancellationDoesNotTriggerFailurePolicy(t *testing.T) {
+	for _, action := range []string{config.StopUser, config.StopTest, config.StopTestNow} {
+		ctx, cancel := context.WithCancel(context.Background())
+		s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { cancel(); <-r.Context().Done() }))
+		c := finiteConfig(s.URL)
+		c.VUs, c.OnError = 1, action
+		r, err := Run(ctx, c, Options{})
+		cancel()
+		s.Close()
+		if err != nil || !r.Interrupted || r.StopReason != "interrupted" || r.FailurePolicy.UsersStopped != 0 || r.FailurePolicy.TestStopped {
+			t.Fatalf("manual cancellation: %v %+v", err, r)
+		}
+		p, _ := c.Validate()
+		if err := r.ValidateIterations(p); err != nil {
+			t.Fatal(err)
+		}
 	}
 }

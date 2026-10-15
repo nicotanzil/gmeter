@@ -115,7 +115,7 @@ illustrate the app; they are not benchmarks. [Capture notes](docs/images/README.
 | --- | --- |
 | HTTP workloads | HTTP/1.1 and HTTPS with HTTP/2 negotiation; methods, headers, bodies, status checks, pooled connections |
 | Traffic models | Concurrent users with duration/iteration limits, ramp-up and startup delay; fixed arrival rate, sequential rate phases, zero-rate pauses, seeded jitter |
-| Failure actions | Users can start the next iteration, continue the journey while retaining errors, or stop only the failed user; [behavior and limits](docs/configuration.md#failure-actions) |
+| Failure actions | Users can start the next iteration, continue the journey while retaining errors, stop only the failed user, or stop the test gracefully/immediately; [behavior and limits](docs/configuration.md#failure-actions) |
 | Application journeys | Nested if/else, fixed-count and bounded while loops, isolated cookies, inline data, variables, extraction, assertions, weighted scenario mixes |
 | Journey canvas | Visual request/control editing, path changes, dependency links, pauses, undo, structure preview, and observed request/decision/iteration counts |
 | Acceptance checks | Request and journey latency, error rates, missed demand, minimum started throughput |

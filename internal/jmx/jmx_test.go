@@ -62,7 +62,7 @@ func TestFailureActionMappingAndExecution(t *testing.T) {
 		jmx, action                 string
 		attempts, journeys, stopped int64
 	}{
-		{"startnextloop", config.NextIteration, 2, 2, 0}, {"continue", config.ContinueJourney, 6, 2, 0}, {"stopthread", config.StopUser, 1, 1, 1},
+		{"startnextloop", config.NextIteration, 2, 2, 0}, {"continue", config.ContinueJourney, 6, 2, 0}, {"stopthread", config.StopUser, 1, 1, 1}, {"stoptest", config.StopTest, 1, 1, 0}, {"stoptestnow", config.StopTestNow, 1, 1, 0},
 	} {
 		t.Run(tc.jmx, func(t *testing.T) {
 			src := strings.Replace(source(t), `<intProp name="LoopController.loops">-1</intProp>`, `<intProp name="LoopController.loops">2</intProp>`, 1)
@@ -85,6 +85,9 @@ func TestFailureActionMappingAndExecution(t *testing.T) {
 			if err != nil || result.Passed || result.Completed != tc.attempts || result.Journeys.Completed != tc.journeys || result.Journeys.Failed != tc.journeys {
 				t.Fatalf("converted execution: %v %+v", err, result)
 			}
+			if r.Config.HasTestStopPolicy() && (result.SchemaVersion != 10 || !result.FailurePolicy.TestStopped) {
+				t.Fatalf("test stop missing: %+v", result)
+			}
 			if tc.action != config.NextIteration && result.FailurePolicy.UsersStopped != tc.stopped {
 				t.Fatalf("stopped users: %+v", result)
 			}
@@ -94,24 +97,24 @@ func TestFailureActionMappingAndExecution(t *testing.T) {
 func TestUnsupportedBehaviorNeverProducesConfiguration(t *testing.T) {
 	src := source(t)
 	for name, pair := range map[string][2]string{
-		"negative ramp":         {"<stringProp name=\"ThreadGroup.ramp_time\">0</stringProp>", "<stringProp name=\"ThreadGroup.ramp_time\">-1</stringProp>"},
-		"graceful test stop":    {"startnextloop", "stoptest"},
-		"immediate test stop":   {"startnextloop", "stoptestnow"},
-		"redirects":             {"<boolProp name=\"HTTPSampler.follow_redirects\">false</boolProp>", "<boolProp name=\"HTTPSampler.follow_redirects\">true</boolProp>"},
-		"sampler timeout":       {"<stringProp name=\"HTTPSampler.method\">GET</stringProp>", "<stringProp name=\"HTTPSampler.response_timeout\">3000</stringProp><stringProp name=\"HTTPSampler.method\">GET</stringProp>"},
-		"unknown property":      {"<stringProp name=\"HTTPSampler.method\">GET</stringProp>", "<boolProp name=\"HTTPSampler.new_behavior\">false</boolProp><stringProp name=\"HTTPSampler.method\">GET</stringProp>"},
-		"unknown sampler":       {"HTTPSamplerProxy", "org.example.PluginSampler"},
-		"custom function":       {"${item}", "${__groovy(1+1)}"},
-		"regex assertion":       {"<intProp name=\"Assertion.test_type\">16</intProp>", "<intProp name=\"Assertion.test_type\">2</intProp>"},
-		"custom config":         {"HttpDefaultsGui", "OtherConfigGui"},
-		"test class spoof":      {"testclass=\"HTTPSamplerProxy\"", "testclass=\"PluginSampler\""},
-		"invalid boolean":       {`<boolProp name="HTTPSampler.follow_redirects">false</boolProp>`, `<boolProp name="HTTPSampler.follow_redirects">maybe</boolProp>`},
-		"wrong property type":   {`<stringProp name="Header.value">application/json</stringProp>`, `<collectionProp name="Header.value"/>`},
-		"empty header":          {`<stringProp name="Header.value">application/json</stringProp>`, `<stringProp name="Header.value"></stringProp>`},
-		"duplicate property":    {`<stringProp name="HTTPSampler.method">GET</stringProp>`, `<stringProp name="HTTPSampler.method">GET</stringProp><stringProp name="HTTPSampler.method">POST</stringProp>`},
-		"cross origin":          {`/work?item=${item}`, `https://example.test/work`},
-		"absolute URL variable": {`/work?item=${item}`, `http://127.0.0.1:8787/work?item=${item}`},
-		"other baseline":        {`jmeter="5.6.3"`, `jmeter="5.5"`},
+		"negative ramp":          {"<stringProp name=\"ThreadGroup.ramp_time\">0</stringProp>", "<stringProp name=\"ThreadGroup.ramp_time\">-1</stringProp>"},
+		"unknown failure action": {"startnextloop", "unknown"},
+		"missing failure action": {`<stringProp name="ThreadGroup.on_sample_error">startnextloop</stringProp>`, ""},
+		"redirects":              {"<boolProp name=\"HTTPSampler.follow_redirects\">false</boolProp>", "<boolProp name=\"HTTPSampler.follow_redirects\">true</boolProp>"},
+		"sampler timeout":        {"<stringProp name=\"HTTPSampler.method\">GET</stringProp>", "<stringProp name=\"HTTPSampler.response_timeout\">3000</stringProp><stringProp name=\"HTTPSampler.method\">GET</stringProp>"},
+		"unknown property":       {"<stringProp name=\"HTTPSampler.method\">GET</stringProp>", "<boolProp name=\"HTTPSampler.new_behavior\">false</boolProp><stringProp name=\"HTTPSampler.method\">GET</stringProp>"},
+		"unknown sampler":        {"HTTPSamplerProxy", "org.example.PluginSampler"},
+		"custom function":        {"${item}", "${__groovy(1+1)}"},
+		"regex assertion":        {"<intProp name=\"Assertion.test_type\">16</intProp>", "<intProp name=\"Assertion.test_type\">2</intProp>"},
+		"custom config":          {"HttpDefaultsGui", "OtherConfigGui"},
+		"test class spoof":       {"testclass=\"HTTPSamplerProxy\"", "testclass=\"PluginSampler\""},
+		"invalid boolean":        {`<boolProp name="HTTPSampler.follow_redirects">false</boolProp>`, `<boolProp name="HTTPSampler.follow_redirects">maybe</boolProp>`},
+		"wrong property type":    {`<stringProp name="Header.value">application/json</stringProp>`, `<collectionProp name="Header.value"/>`},
+		"empty header":           {`<stringProp name="Header.value">application/json</stringProp>`, `<stringProp name="Header.value"></stringProp>`},
+		"duplicate property":     {`<stringProp name="HTTPSampler.method">GET</stringProp>`, `<stringProp name="HTTPSampler.method">GET</stringProp><stringProp name="HTTPSampler.method">POST</stringProp>`},
+		"cross origin":           {`/work?item=${item}`, `https://example.test/work`},
+		"absolute URL variable":  {`/work?item=${item}`, `http://127.0.0.1:8787/work?item=${item}`},
+		"other baseline":         {`jmeter="5.6.3"`, `jmeter="5.5"`},
 	} {
 		t.Run(name, func(t *testing.T) {
 			modified := strings.Replace(src, pair[0], pair[1], 1)

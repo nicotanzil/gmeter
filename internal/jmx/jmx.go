@@ -117,6 +117,14 @@ func Analyze(r io.Reader, options Options) (Report, error) {
 		status = "mapped"
 	}
 	a.global("runtime", "gmeter runtime policies", status, "Review required: gmeter uses a 5s total request timeout, 30s journey deadline, 10 MiB response limit, verified HTTPS, bounded loops and aggregates, and drains admitted journeys after the load window. gmeter uses one absolute group clock and creates user work at scheduled starts; JVM thread allocation is not preserved. JMeter listeners are replaced by gmeter reports. Connection implementations, default headers, cookie edge cases, and timing statistics can differ. This is conversion to gmeter behavior, not a JMeter runtime emulator.")
+	if a.cfg.HasTestStopPolicy() {
+		policy := "Stop Test Now cancels native workload contexts, including active HTTP and journey pauses; partial results are retained and a mandatory check fails. It cannot roll back server-side effects."
+		if a.cfg.ErrorAction() == config.StopTest {
+			policy = "Stop Test ends the failing journey and drains other admitted journeys, including later requests and pauses. JMeter drains current samplers instead; conversion may therefore send additional requests after the failure. A mandatory check fails."
+		}
+		component := &a.report.Components[len(a.report.Components)-1]
+		component.Details = append(component.Details, policy)
+	}
 	for _, input := range a.inputs {
 		a.report.Inputs = append(a.report.Inputs, input)
 		if !input.Supplied {
@@ -504,8 +512,12 @@ func (a *analyzer) group(t *tree) {
 		a.cfg.OnError = config.ContinueJourney
 	case "stopthread":
 		a.cfg.OnError = config.StopUser
+	case "stoptest":
+		a.cfg.OnError = config.StopTest
+	case "stoptestnow":
+		a.cfg.OnError = config.StopTestNow
 	default:
-		a.issue(t, "blocked", "Use an explicit Continue, Start Next Thread Loop, or Stop Thread failure action. Stop Test and Stop Test Now need test-wide execution support.")
+		a.issue(t, "blocked", "Use an explicit Continue, Start Next Thread Loop, Stop Thread, Stop Test, or Stop Test Now failure action.")
 	}
 	if value := t.e.value("ThreadGroup.same_user_on_next_iteration"); value == "false" {
 		a.issue(t, "blocked", "Resetting user state between iterations needs engine support.")
@@ -533,6 +545,12 @@ func (a *analyzer) group(t *tree) {
 		}
 		if a.cfg.OnError == config.StopUser {
 			behavior = "A failed request or assertion stops that user's current journey and all its future iterations. Other users continue. A stopped user fails the mandatory users_stopped_on_error check."
+		}
+		if a.cfg.OnError == config.StopTest {
+			behavior = "A failure ends the failing journey and stops all new users/iterations. Other admitted journeys finish under their deadlines, including later requests and pauses. This is broader than JMeter's current-sampler graceful stop. The error-triggered test stop fails a mandatory check."
+		}
+		if a.cfg.OnError == config.StopTestNow {
+			behavior = "A failure cancels active workload requests, journey pauses and pending user starts. Partial results are retained and a mandatory check fails. This is a native error-triggered stop, not a manual interruption or a server-side rollback."
 		}
 		a.issue(t, "mapped", fmt.Sprintf("Converted workload: %d concurrent user(s) %s. %s Admitted journeys drain under gmeter's runtime policies.", a.cfg.VUs, stop, behavior))
 	}

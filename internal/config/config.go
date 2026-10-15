@@ -106,6 +106,8 @@ const (
 	NextIteration   = "next_iteration"
 	ContinueJourney = "continue"
 	StopUser        = "stop_user"
+	StopTest        = "stop_test"
+	StopTestNow     = "stop_test_now"
 )
 
 func (c Config) ErrorAction() string {
@@ -116,6 +118,10 @@ func (c Config) ErrorAction() string {
 }
 
 func (c Config) HasFailurePolicy() bool { return c.ErrorAction() != NextIteration }
+
+func (c Config) HasTestStopPolicy() bool {
+	return c.ErrorAction() == StopTest || c.ErrorAction() == StopTestNow
+}
 
 // UserStartOffset follows the standard thread-group ramp convention: the
 // first user starts immediately and the last at ramp * (users-1) / users.
@@ -200,12 +206,12 @@ func (c Config) Validate() (Plan, error) {
 		return p, fmt.Errorf("mode must be users or rate")
 	}
 	switch c.ErrorAction() {
-	case NextIteration, ContinueJourney, StopUser:
+	case NextIteration, ContinueJourney, StopUser, StopTest, StopTestNow:
 	default:
-		return p, fmt.Errorf("on_error must be next_iteration, continue, or stop_user")
+		return p, fmt.Errorf("on_error must be next_iteration, continue, stop_user, stop_test, or stop_test_now")
 	}
 	if c.HasFailurePolicy() && c.Mode != "users" {
-		return p, fmt.Errorf("continue and stop_user failure actions currently require users mode")
+		return p, fmt.Errorf("nondefault failure actions currently require users mode")
 	}
 	if c.Iterations < 0 || c.Iterations > 1000000 {
 		return p, fmt.Errorf("iterations must be between 0 and 1000000 (0 means duration only)")

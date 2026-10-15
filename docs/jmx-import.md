@@ -34,7 +34,7 @@ Start the bundled demo with `./bin/gmeter-demo` before running the sample.
 
 | Source feature | Mapping and limits |
 | --- | --- |
-| Standard Thread Group | Exactly one enabled group; finite outer iterations 1–1000000, or infinite iterations with scheduler duration 1–86400 seconds; optional duration with finite iterations (first limit wins); 1–100000 users; ramp and scheduler startup delay 0–86400 seconds; delayed thread creation off; **Continue**, **Start Next Thread Loop**, or **Stop Thread** on error; retained user state |
+| Standard Thread Group | Exactly one enabled group; finite outer iterations 1–1000000, or infinite iterations with scheduler duration 1–86400 seconds; optional duration with finite iterations (first limit wins); 1–100000 users; ramp and scheduler startup delay 0–86400 seconds; delayed thread creation off; **Continue**, **Start Next Thread Loop**, **Stop Thread**, **Stop Test**, or **Stop Test Now** on error; retained user state |
 | HTTP Request | One HTTP/HTTPS origin; explicit Follow Redirects off; keep-alive; default or HttpClient4 implementation; UTF-8; relative paths or literal absolute URLs |
 | Request content | Methods and paths, scoped headers, one raw body argument, constant encoded GET arguments; variable references in paths, headers and raw bodies |
 | HTTP Request Defaults | Scoped scalar defaults flattened into requests; arguments on defaults are blocked |
@@ -48,7 +48,7 @@ Start the bundled demo with `./bin/gmeter-demo` before running the sample.
 
 Unknown enabled components, properties, incompatible XML property types, and
 unsupported scopes block conversion. Among the current blockers are unbounded
-thread groups, multiple groups, delayed thread creation, Stop Test/Stop Test Now actions,
+thread groups, multiple groups, delayed thread creation, unknown failure actions,
 CSV files, extractors, timers, If/While controllers, scripts, plugins, redirects,
 uploads, form encoding, custom HTTP timeouts, authentication managers, proxies,
 and cross-origin flows. Native gmeter supports some related features, including
@@ -148,11 +148,23 @@ The explicit Thread Group `on_sample_error` setting maps as follows:
 | Start Next Thread Loop (`startnextloop`) | Default `next_iteration` |
 | Continue (`continue`) | `continue` |
 | Stop Thread (`stopthread`) | `stop_user` |
+| Stop Test (`stoptest`) | `stop_test` |
+| Stop Test Now (`stoptestnow`) | `stop_test_now` |
 
-Unknown or missing actions, Stop Test, and Stop Test Now remain blockers. The
+Unknown or missing actions remain blockers. The
 [Apache Thread Group reference](https://jmeter.apache.org/usermanual/component_reference.html#Thread_Group)
 defines the source actions. Review the converter's explanation and native
 [failure contract](configuration.md#failure-actions): failed verification does
 not publish extracted values, whole-journey deadlines and safety errors abort
 execution, and any user stopped on error fails a mandatory check. These are
 explicit conversion policies; cross-engine equivalence has not been established.
+
+The converter explicitly explains the test-wide stopping difference. JMeter
+stops gracefully at the end of current samplers; gmeter ends the failing journey
+and drains other already-admitted journeys, including their later requests and
+pauses. This may send additional HTTP requests after the triggering failure.
+Accepting runtime policies accepts that native conversion contract. See the
+[5.6.3 stopping implementation](https://github.com/apache/jmeter/blob/rel/v5.6.3/src/core/src/main/java/org/apache/jmeter/threads/JMeterThread.java).
+Immediate stopping cancels gmeter workload contexts and retains partial results;
+it cannot undo a server-side effect. Neither conversion has cross-engine timing
+or performance equivalence evidence.

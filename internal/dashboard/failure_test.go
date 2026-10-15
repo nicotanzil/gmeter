@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
+
+	"gmeter/internal/engine"
 )
 
 func TestFailurePolicyBundlesPreserveExecutionAndRejectMismatches(t *testing.T) {
@@ -61,6 +63,69 @@ func TestFailurePolicyBundlesPreserveExecutionAndRejectMismatches(t *testing.T) 
 			stored, err := s.store.getRun(run.ID)
 			if err != nil || stored.Config.OnError != action || stored.Result.FailurePolicy.UsersStopped != stopped {
 				t.Fatalf("persistence: %v %+v", err, stored)
+			}
+		})
+	}
+}
+
+func TestTestStopBundlesPreservePartialResultsAndRejectMismatches(t *testing.T) {
+	s := testServer(t)
+	var attempts atomic.Int64
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { attempts.Add(1); http.Error(w, "failed", 503) }))
+	defer target.Close()
+	for _, action := range []string{"stop_test", "stop_test_now"} {
+		t.Run(action, func(t *testing.T) {
+			body := fmt.Sprintf(`{"url":%q,"vus":4,"iterations":5,"ramp_up":"1h","on_error":%q,"thresholds":{"max_error_percent":null},"journey_thresholds":{"max_error_percent":null},"scenarios":[{"name":"Fail","steps":[{"url":"/fail"},{"url":"/after"}]}]}`, target.URL, action)
+			before := attempts.Load()
+			run := awaitRun(t, s, startRun(t, s, body))
+			if run.Status != "failed" || run.Result.SchemaVersion != 10 || run.Result.Interrupted || !run.Result.FailurePolicy.TestStopped || run.Result.Completed != 1 || run.Result.Journeys.Completed != 1 || run.Result.UserSchedule.Users.Started != 1 {
+				t.Fatalf("test stop: %+v", run)
+			}
+			bundle, _ := json.Marshal(run)
+			if w := request(s, "POST", "/api/runs/import", string(bundle)); w.Code != 201 || attempts.Load()-before != 1 {
+				t.Fatalf("round trip: %d %s", w.Code, w.Body)
+			}
+			for _, mutate := range []func(*Run){
+				func(r *Run) { r.Result.SchemaVersion = 9 }, func(r *Run) { r.Config.OnError = "stop_user" }, func(r *Run) { r.Result.FailurePolicy.TestStopped = false }, func(r *Run) { r.Result.FailurePolicy.UsersStopped = 1 }, func(r *Run) { r.Result.Passed = true }, func(r *Run) { r.Result.StopReason = "iterations" }, func(r *Run) { r.Result.StopReason = "interrupted" },
+				func(r *Run) {
+					if action == "stop_test" {
+						r.Result.StopReason = "test_stopped_now"
+					} else {
+						r.Result.StopReason = "test_stopped"
+					}
+				},
+				func(r *Run) { r.Result.Checks = nil }, func(r *Run) {
+					for i := range r.Result.Checks {
+						if r.Result.Checks[i].Name == "test_stopped_on_error" {
+							r.Result.Checks[i].Passed = true
+						}
+					}
+				},
+				func(r *Run) { r.Samples[0].FailurePolicy.TestStopped = true },
+				func(r *Run) { r.Samples[len(r.Samples)-1].FailurePolicy.TestStopped = false },
+				func(r *Run) {
+					last := r.Samples[len(r.Samples)-1]
+					f := *last.FailurePolicy
+					f.TestStopped = false
+					last.FailurePolicy = &f
+					r.Samples = append(r.Samples, last)
+				},
+				func(r *Run) {
+					r.Result.FailurePolicy = &engine.FailurePolicy{Action: action, TestStopped: true}
+					r.Result.Journeys.Failed = 0
+				},
+			} {
+				var invalid Run
+				json.Unmarshal(bundle, &invalid)
+				mutate(&invalid)
+				data, _ := json.Marshal(invalid)
+				if w := request(s, "POST", "/api/runs/import", string(data)); w.Code != 400 {
+					t.Fatalf("invalid test stop accepted: %d %s", w.Code, w.Body)
+				}
+			}
+			stored, err := s.store.getRun(run.ID)
+			if err != nil || !stored.Result.FailurePolicy.TestStopped || stored.Config.OnError != action {
+				t.Fatalf("saved stop: %v %+v", err, stored)
 			}
 		})
 	}
