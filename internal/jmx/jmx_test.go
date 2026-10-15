@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"gmeter/internal/config"
 	"gmeter/internal/engine"
 	"gmeter/internal/jmx"
 )
@@ -55,26 +56,62 @@ func TestSupportedMappingAndRuntimeReview(t *testing.T) {
 		t.Fatalf("nested mapping: %+v", steps[1])
 	}
 }
+
+func TestFailureActionMappingAndExecution(t *testing.T) {
+	for _, tc := range []struct {
+		jmx, action                 string
+		attempts, journeys, stopped int64
+	}{
+		{"startnextloop", config.NextIteration, 2, 2, 0}, {"continue", config.ContinueJourney, 6, 2, 0}, {"stopthread", config.StopUser, 1, 1, 1},
+	} {
+		t.Run(tc.jmx, func(t *testing.T) {
+			src := strings.Replace(source(t), `<intProp name="LoopController.loops">-1</intProp>`, `<intProp name="LoopController.loops">2</intProp>`, 1)
+			src = strings.Replace(src, `<boolProp name="ThreadGroup.scheduler">true</boolProp>`, `<boolProp name="ThreadGroup.scheduler">false</boolProp>`, 1)
+			src = strings.Replace(src, "startnextloop", tc.jmx, 1)
+			r := analyze(t, src, jmx.Options{AcceptRuntime: true})
+			if !r.Ready || r.Config == nil || r.Config.ErrorAction() != tc.action {
+				t.Fatalf("failure mapping: %+v", r)
+			}
+			target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == "GET" {
+					http.Error(w, "failed", 503)
+				} else {
+					fmt.Fprint(w, `{"ok":true}`)
+				}
+			}))
+			defer target.Close()
+			r.Config.URL = target.URL
+			result, err := engine.Run(context.Background(), *r.Config, engine.Options{})
+			if err != nil || result.Passed || result.Completed != tc.attempts || result.Journeys.Completed != tc.journeys || result.Journeys.Failed != tc.journeys {
+				t.Fatalf("converted execution: %v %+v", err, result)
+			}
+			if tc.action != config.NextIteration && result.FailurePolicy.UsersStopped != tc.stopped {
+				t.Fatalf("stopped users: %+v", result)
+			}
+		})
+	}
+}
 func TestUnsupportedBehaviorNeverProducesConfiguration(t *testing.T) {
 	src := source(t)
 	for name, pair := range map[string][2]string{
-		"ramp":                   {"<stringProp name=\"ThreadGroup.ramp_time\">0</stringProp>", "<stringProp name=\"ThreadGroup.ramp_time\">10</stringProp>"},
-		"continue after failure": {"startnextloop", "continue"},
-		"redirects":              {"<boolProp name=\"HTTPSampler.follow_redirects\">false</boolProp>", "<boolProp name=\"HTTPSampler.follow_redirects\">true</boolProp>"},
-		"sampler timeout":        {"<stringProp name=\"HTTPSampler.method\">GET</stringProp>", "<stringProp name=\"HTTPSampler.response_timeout\">3000</stringProp><stringProp name=\"HTTPSampler.method\">GET</stringProp>"},
-		"unknown property":       {"<stringProp name=\"HTTPSampler.method\">GET</stringProp>", "<boolProp name=\"HTTPSampler.new_behavior\">false</boolProp><stringProp name=\"HTTPSampler.method\">GET</stringProp>"},
-		"unknown sampler":        {"HTTPSamplerProxy", "org.example.PluginSampler"},
-		"custom function":        {"${item}", "${__groovy(1+1)}"},
-		"regex assertion":        {"<intProp name=\"Assertion.test_type\">16</intProp>", "<intProp name=\"Assertion.test_type\">2</intProp>"},
-		"custom config":          {"HttpDefaultsGui", "OtherConfigGui"},
-		"test class spoof":       {"testclass=\"HTTPSamplerProxy\"", "testclass=\"PluginSampler\""},
-		"invalid boolean":        {`<boolProp name="HTTPSampler.follow_redirects">false</boolProp>`, `<boolProp name="HTTPSampler.follow_redirects">maybe</boolProp>`},
-		"wrong property type":    {`<stringProp name="Header.value">application/json</stringProp>`, `<collectionProp name="Header.value"/>`},
-		"empty header":           {`<stringProp name="Header.value">application/json</stringProp>`, `<stringProp name="Header.value"></stringProp>`},
-		"duplicate property":     {`<stringProp name="HTTPSampler.method">GET</stringProp>`, `<stringProp name="HTTPSampler.method">GET</stringProp><stringProp name="HTTPSampler.method">POST</stringProp>`},
-		"cross origin":           {`/work?item=${item}`, `https://example.test/work`},
-		"absolute URL variable":  {`/work?item=${item}`, `http://127.0.0.1:8787/work?item=${item}`},
-		"other baseline":         {`jmeter="5.6.3"`, `jmeter="5.5"`},
+		"negative ramp":         {"<stringProp name=\"ThreadGroup.ramp_time\">0</stringProp>", "<stringProp name=\"ThreadGroup.ramp_time\">-1</stringProp>"},
+		"graceful test stop":    {"startnextloop", "stoptest"},
+		"immediate test stop":   {"startnextloop", "stoptestnow"},
+		"redirects":             {"<boolProp name=\"HTTPSampler.follow_redirects\">false</boolProp>", "<boolProp name=\"HTTPSampler.follow_redirects\">true</boolProp>"},
+		"sampler timeout":       {"<stringProp name=\"HTTPSampler.method\">GET</stringProp>", "<stringProp name=\"HTTPSampler.response_timeout\">3000</stringProp><stringProp name=\"HTTPSampler.method\">GET</stringProp>"},
+		"unknown property":      {"<stringProp name=\"HTTPSampler.method\">GET</stringProp>", "<boolProp name=\"HTTPSampler.new_behavior\">false</boolProp><stringProp name=\"HTTPSampler.method\">GET</stringProp>"},
+		"unknown sampler":       {"HTTPSamplerProxy", "org.example.PluginSampler"},
+		"custom function":       {"${item}", "${__groovy(1+1)}"},
+		"regex assertion":       {"<intProp name=\"Assertion.test_type\">16</intProp>", "<intProp name=\"Assertion.test_type\">2</intProp>"},
+		"custom config":         {"HttpDefaultsGui", "OtherConfigGui"},
+		"test class spoof":      {"testclass=\"HTTPSamplerProxy\"", "testclass=\"PluginSampler\""},
+		"invalid boolean":       {`<boolProp name="HTTPSampler.follow_redirects">false</boolProp>`, `<boolProp name="HTTPSampler.follow_redirects">maybe</boolProp>`},
+		"wrong property type":   {`<stringProp name="Header.value">application/json</stringProp>`, `<collectionProp name="Header.value"/>`},
+		"empty header":          {`<stringProp name="Header.value">application/json</stringProp>`, `<stringProp name="Header.value"></stringProp>`},
+		"duplicate property":    {`<stringProp name="HTTPSampler.method">GET</stringProp>`, `<stringProp name="HTTPSampler.method">GET</stringProp><stringProp name="HTTPSampler.method">POST</stringProp>`},
+		"cross origin":          {`/work?item=${item}`, `https://example.test/work`},
+		"absolute URL variable": {`/work?item=${item}`, `http://127.0.0.1:8787/work?item=${item}`},
+		"other baseline":        {`jmeter="5.6.3"`, `jmeter="5.5"`},
 	} {
 		t.Run(name, func(t *testing.T) {
 			modified := strings.Replace(src, pair[0], pair[1], 1)
@@ -115,6 +152,70 @@ func TestFiniteThreadGroupIterations(t *testing.T) {
 	src := strings.Replace(source(t), `<boolProp name="ThreadGroup.scheduler">true</boolProp>`, `<boolProp name="ThreadGroup.scheduler">false</boolProp>`, 1)
 	if r := analyze(t, src, jmx.Options{AcceptRuntime: true}); r.Ready || r.Config != nil || r.Blockers == 0 {
 		t.Fatal("unbounded thread group imported")
+	}
+}
+
+func TestUserRampAndStartupMapping(t *testing.T) {
+	src := strings.Replace(source(t), `<intProp name="LoopController.loops">-1</intProp>`, `<intProp name="LoopController.loops">1</intProp>`, 1)
+	src = strings.Replace(src, `<stringProp name="ThreadGroup.num_threads">1</stringProp>`, `<stringProp name="ThreadGroup.num_threads">2</stringProp>`, 1)
+	src = strings.Replace(src, `<stringProp name="ThreadGroup.ramp_time">0</stringProp>`, `<stringProp name="ThreadGroup.ramp_time">${__P(ramp,1)}</stringProp>`, 1)
+	src = strings.Replace(src, `<stringProp name="ThreadGroup.delay">0</stringProp>`, `<stringProp name="ThreadGroup.delay">1</stringProp>`, 1)
+	r := analyze(t, src, jmx.Options{AcceptRuntime: true})
+	if !r.Ready || r.Config == nil || r.Config.VUs != 2 || r.Config.RampUp != "1s" || r.Config.StartupDelay != "1s" {
+		t.Fatalf("ramp mapping: %+v", r)
+	}
+	var mu sync.Mutex
+	var reads []time.Time
+	attempts := 0
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		attempts++
+		if r.Method == "GET" {
+			reads = append(reads, time.Now())
+		}
+		mu.Unlock()
+		fmt.Fprint(w, `{"ok":true}`)
+	}))
+	defer target.Close()
+	r.Config.URL = target.URL
+	result, err := engine.Run(context.Background(), *r.Config, engine.Options{})
+	if err != nil || !result.Passed || result.Journeys.Completed != 2 || attempts != 6 || result.UserSchedule.Users.Started != 2 || len(reads) != 2 {
+		t.Fatalf("ramped execution: %v %+v", err, result)
+	}
+	for i, at := range reads {
+		if at.Before(result.StartedAt.Add(time.Second + time.Duration(i)*500*time.Millisecond)) {
+			t.Fatal("converted user started before scheduled offset")
+		}
+	}
+	// The source scheduler ignores startup delay when disabled, including properties.
+	unscheduled := strings.Replace(src, `<boolProp name="ThreadGroup.scheduler">true</boolProp>`, `<boolProp name="ThreadGroup.scheduler">false</boolProp>`, 1)
+	unscheduled = strings.Replace(unscheduled, `<stringProp name="ThreadGroup.delay">1</stringProp>`, `<stringProp name="ThreadGroup.delay">${__P(unused_delay)}</stringProp>`, 1)
+	if r := analyze(t, unscheduled, jmx.Options{AcceptRuntime: true}); !r.Ready || r.Config.StartupDelay != "" || r.MissingInputs != 0 {
+		t.Fatalf("inactive scheduler delay: %+v", r)
+	}
+}
+
+func TestJMeterRampRoundingAndUnsupportedSchedules(t *testing.T) {
+	base := source(t)
+	for _, tc := range []struct{ users, ramp, want string }{{"3", "1", "999ms"}, {"100000", "1", ""}, {"4", "4", "4s"}} {
+		src := strings.Replace(base, `<stringProp name="ThreadGroup.num_threads">1</stringProp>`, `<stringProp name="ThreadGroup.num_threads">`+tc.users+`</stringProp>`, 1)
+		src = strings.Replace(src, `<stringProp name="ThreadGroup.ramp_time">0</stringProp>`, `<stringProp name="ThreadGroup.ramp_time">`+tc.ramp+`</stringProp>`, 1)
+		r := analyze(t, src, jmx.Options{AcceptRuntime: true})
+		if !r.Ready || r.Config.RampUp != tc.want {
+			t.Fatalf("rounding %+v: %+v", tc, r)
+		}
+	}
+	for _, setting := range []string{"ThreadGroup.ramp_time", "ThreadGroup.delay"} {
+		for _, value := range []string{"-1", "86401", "1.5", "bad"} {
+			src := strings.Replace(base, `<stringProp name="`+setting+`">0</stringProp>`, `<stringProp name="`+setting+`">`+value+`</stringProp>`, 1)
+			if r := analyze(t, src, jmx.Options{AcceptRuntime: true}); r.Config != nil || r.Blockers == 0 {
+				t.Fatalf("invalid %s=%s imported", setting, value)
+			}
+		}
+	}
+	src := strings.Replace(base, `<boolProp name="ThreadGroup.scheduler">true</boolProp>`, `<boolProp name="ThreadGroup.delayedStart">true</boolProp><boolProp name="ThreadGroup.scheduler">true</boolProp>`, 1)
+	if r := analyze(t, src, jmx.Options{AcceptRuntime: true}); r.Config != nil || r.Blockers == 0 {
+		t.Fatal("different delayed-start scheduler imported")
 	}
 }
 func TestPropertiesAndDisabledSubtrees(t *testing.T) {

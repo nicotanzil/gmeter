@@ -62,6 +62,48 @@ func TestCLIFiniteIterations(t *testing.T) {
 	}
 }
 
+func TestCLIUserRampAndStartupReports(t *testing.T) {
+	var attempts atomic.Int64
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { attempts.Add(1) }))
+	defer s.Close()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "ramp.json")
+	html := filepath.Join(dir, "ramp.html")
+	var out bytes.Buffer
+	code := Run(context.Background(), []string{"run", "-url", s.URL, "-vus", "3", "-iterations", "2", "-ramp-up", "150ms", "-startup-delay", "30ms", "-quiet", "-out", path, "-html", html}, &out, &out)
+	if code != 0 {
+		t.Fatalf("CLI=%d: %s", code, &out)
+	}
+	data, _ := os.ReadFile(path)
+	var r engine.Result
+	if err := json.Unmarshal(data, &r); err != nil {
+		t.Fatal(err)
+	}
+	page, _ := os.ReadFile(html)
+	if attempts.Load() != 6 || r.SchemaVersion != 8 || r.UserSchedule.StartupSeconds != .03 || r.UserSchedule.Users.Started != 3 || !strings.Contains(out.String(), "Startup wait:") || !strings.Contains(string(page), "startup wait / ") {
+		t.Fatalf("schedule artifacts: %+v %s", r, &out)
+	}
+}
+
+func TestCLIFailureActionReports(t *testing.T) {
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.Error(w, "failed", 503) }))
+	defer s.Close()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "failure.json")
+	html := filepath.Join(dir, "failure.html")
+	var out bytes.Buffer
+	code := Run(context.Background(), []string{"run", "-url", s.URL, "-vus", "2", "-iterations", "3", "-on-error", "stop_user", "-quiet", "-out", path, "-html", html}, &out, &out)
+	data, _ := os.ReadFile(path)
+	var r engine.Result
+	if err := json.Unmarshal(data, &r); err != nil {
+		t.Fatal(err)
+	}
+	page, _ := os.ReadFile(html)
+	if code != 1 || r.Completed != 2 || r.StopReason != "users_stopped" || r.FailurePolicy.UsersStopped != 2 || !strings.Contains(out.String(), "2 users stopped on error") || !strings.Contains(string(page), "Failure action: Stop this user") || !strings.Contains(string(page), "users stopped after errors") {
+		t.Fatalf("failure artifacts: code=%d %+v %s", code, r, &out)
+	}
+}
+
 func TestCLIDistributedReportsAndTokenHandling(t *testing.T) {
 	token := "cli-test-worker-token-012345678901234567890123456789"
 	t.Setenv("GMETER_WORKER_TOKEN", token)

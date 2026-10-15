@@ -1,0 +1,16 @@
+{
+  "name": "Gradual users with finite iterations",
+  "url": "http://127.0.0.1:8787/work",
+  "mode": "users",
+  "vus": 4,
+  "iterations": 3,
+  "duration": "",
+  "startup_delay": "2s",
+  "ramp_up": "4s",
+  "think_time": "200ms",
+  "timeout": "2s",
+  "thresholds": {
+    "max_error_percent": 0,
+    "max_drop_percent": 0
+  }
+}

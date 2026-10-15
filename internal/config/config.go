@@ -37,6 +37,9 @@ type Config struct {
 	Mode                string            `json:"mode"`
 	Duration            string            `json:"duration"`
 	Iterations          int               `json:"iterations,omitempty"`
+	RampUp              string            `json:"ramp_up,omitempty"`
+	StartupDelay        string            `json:"startup_delay,omitempty"`
+	OnError             string            `json:"on_error,omitempty"`
 	VUs                 int               `json:"vus"`
 	Rate                int               `json:"rate"`
 	MaxInFlight         int               `json:"max_in_flight"`
@@ -67,16 +70,18 @@ type Phase struct {
 
 type Plan struct {
 	Config
-	Phases          []Phase
-	LoadDuration    time.Duration
-	RequestTimeout  time.Duration
-	UserThinkTime   time.Duration
-	P95Limit        time.Duration
-	JourneyLimit    time.Duration
-	JourneyChecks   CompiledJourneyThresholds
-	ScenarioPlans   []ScenarioPlan
-	TotalWeight     int64
-	TargetTelemetry *telemetry.Plan
+	Phases           []Phase
+	LoadDuration     time.Duration
+	RequestTimeout   time.Duration
+	UserThinkTime    time.Duration
+	UserRampUp       time.Duration
+	UserStartupDelay time.Duration
+	P95Limit         time.Duration
+	JourneyLimit     time.Duration
+	JourneyChecks    CompiledJourneyThresholds
+	ScenarioPlans    []ScenarioPlan
+	TotalWeight      int64
+	TargetTelemetry  *telemetry.Plan
 }
 
 func Defaults() Config {
@@ -94,6 +99,29 @@ func Defaults() Config {
 }
 
 func (c Config) DiagnosticsEnabled() bool { return c.Diagnostics == nil || *c.Diagnostics }
+
+func (p Plan) HasUserSchedule() bool { return p.UserRampUp > 0 || p.UserStartupDelay > 0 }
+
+const (
+	NextIteration   = "next_iteration"
+	ContinueJourney = "continue"
+	StopUser        = "stop_user"
+)
+
+func (c Config) ErrorAction() string {
+	if c.OnError == "" {
+		return NextIteration
+	}
+	return c.OnError
+}
+
+func (c Config) HasFailurePolicy() bool { return c.ErrorAction() != NextIteration }
+
+// UserStartOffset follows the standard thread-group ramp convention: the
+// first user starts immediately and the last at ramp * (users-1) / users.
+func (p Plan) UserStartOffset(user int) time.Duration {
+	return p.UserStartupDelay + p.UserRampUp*time.Duration(user)/time.Duration(p.VUs)
+}
 
 func Load(r io.Reader) (Config, error) {
 	data, err := io.ReadAll(io.LimitReader(r, MaxConfigBytes+1))
@@ -171,11 +199,38 @@ func (c Config) Validate() (Plan, error) {
 	if c.Mode != "users" && c.Mode != "rate" {
 		return p, fmt.Errorf("mode must be users or rate")
 	}
+	switch c.ErrorAction() {
+	case NextIteration, ContinueJourney, StopUser:
+	default:
+		return p, fmt.Errorf("on_error must be next_iteration, continue, or stop_user")
+	}
+	if c.HasFailurePolicy() && c.Mode != "users" {
+		return p, fmt.Errorf("continue and stop_user failure actions currently require users mode")
+	}
 	if c.Iterations < 0 || c.Iterations > 1000000 {
 		return p, fmt.Errorf("iterations must be between 0 and 1000000 (0 means duration only)")
 	}
 	if c.Iterations > 0 && c.Mode != "users" {
 		return p, fmt.Errorf("iterations is only supported in users mode")
+	}
+	for _, setting := range []struct {
+		name, value string
+		target      *time.Duration
+	}{
+		{"ramp_up", c.RampUp, &p.UserRampUp},
+		{"startup_delay", c.StartupDelay, &p.UserStartupDelay},
+	} {
+		if setting.value == "" {
+			continue
+		}
+		value, err := time.ParseDuration(setting.value)
+		if err != nil || value < 0 || value > 24*time.Hour {
+			return p, fmt.Errorf("%s must be a duration between 0 and 24h", setting.name)
+		}
+		if c.Mode != "users" && value != 0 {
+			return p, fmt.Errorf("%s is only supported in users mode", setting.name)
+		}
+		*setting.target = value
 	}
 	if c.VUs < 1 || c.VUs > 100000 {
 		return p, fmt.Errorf("vus must be between 1 and 100000")

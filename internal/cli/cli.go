@@ -174,6 +174,9 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	mode := fs.String("mode", d.Mode, "users or rate")
 	duration := fs.String("duration", d.Duration, "load duration (ignored when stages are configured)")
 	iterations := fs.Int("iterations", 0, "iterations per user; clears duration unless -duration is also supplied")
+	rampUp := fs.String("ramp-up", "", "time to stagger user starts; users mode only, e.g. 10s")
+	startupDelay := fs.String("startup-delay", "", "wait before the user load window; users mode only")
+	onError := fs.String("on-error", "", "users mode: next_iteration, continue, or stop_user")
 	vus := fs.Int("vus", d.VUs, "concurrent users in users mode")
 	rate := fs.Int("rate", 0, "workload arrivals/second (journeys when scenarios are present); selects rate mode")
 	maxInFlight := fs.Int("max-in-flight", d.MaxInFlight, "concurrent workload cap in rate mode")
@@ -244,6 +247,15 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	}
 	if set["vus"] {
 		c.VUs = *vus
+	}
+	if set["ramp-up"] {
+		c.RampUp = *rampUp
+	}
+	if set["startup-delay"] {
+		c.StartupDelay = *startupDelay
+	}
+	if set["on-error"] {
+		c.OnError = *onError
 	}
 	if set["rate"] {
 		c.Rate = *rate
@@ -390,14 +402,18 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 }
 
 func loadDescription(p config.Plan) string {
+	schedule := ""
+	if p.HasUserSchedule() {
+		schedule = fmt.Sprintf(" · %s startup delay · %s user ramp", p.UserStartupDelay, p.UserRampUp)
+	}
 	if p.Iterations > 0 {
 		text := fmt.Sprintf("%d iterations/user", p.Iterations)
 		if p.LoadDuration > 0 {
 			text += fmt.Sprintf(" or %s load, whichever comes first", p.LoadDuration)
 		}
-		return text
+		return text + schedule
 	}
-	return p.LoadDuration.String() + " load"
+	return p.LoadDuration.String() + " load" + schedule
 }
 
 func distinctPaths(paths ...string) error {

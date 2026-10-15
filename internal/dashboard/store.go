@@ -34,6 +34,8 @@ type Sample struct {
 	Phase          string                 `json:"phase"`
 	TargetRate     int                    `json:"target_rate"`
 	Draining       bool                   `json:"draining"`
+	UserSchedule   *engine.UserSchedule   `json:"user_schedule,omitempty"`
+	FailurePolicy  *engine.FailurePolicy  `json:"failure_policy,omitempty"`
 	Requests       metrics.Snapshot       `json:"requests"`
 	Journeys       engine.JourneyMetrics  `json:"journeys"`
 	Generator      *diagnostics.Resources `json:"generator,omitempty"`

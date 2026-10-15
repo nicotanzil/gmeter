@@ -3,8 +3,9 @@
 [Documentation](README.md) · [Project overview](../README.md)
 
 A scenario is a sequence of HTTP requests, conditional branches, and bounded loops. One scheduled arrival starts
-one journey through the chosen scenario. A successful journey completes its selected paths, loop iterations, and pauses. The first failed step stops the journey; subsequent steps are
-recorded as skipped and send no requests.
+one journey through the chosen scenario. A successful journey completes its selected paths, loop iterations, and pauses. By default, the first failed step stops the journey; subsequent steps are
+recorded as skipped and send no requests. Users mode can instead continue later
+steps or stop the user; see [failure actions](configuration.md#failure-actions).
 
 Try `examples/journey.json` against `gmeter-demo`. It logs in with two different
 data rows, captures a token, keeps the session cookie, reads a profile, and
@@ -312,8 +313,10 @@ Initialize `ready` before this node. The condition is checked before each
 iteration, so the body may run zero times. `max_iterations` (1–1000) is required.
 After the last permitted iteration the condition is checked again; if still
 true, the journey fails with `loop_limit`. There is no silent successful
-truncation. A request, assertion, condition, deadline, or cancellation failure
-stops all enclosing controls and the journey. `journey_timeout` bounds the
+truncation. By default, a request or assertion failure stops all enclosing controls and the
+journey. With `on_error: "continue"`, later requests and loop iterations are
+attempted; the journey remains failed. Condition errors, safety limits,
+deadlines and cancellation always stop all enclosing controls and the journey. `journey_timeout` bounds the
 complete flow. No retries or parallel branches are implied.
 
 Validation checks variable availability on every possible path. A variable
@@ -331,8 +334,9 @@ before any traffic. Metrics storage scales with static nodes, not iterations.
 ### Flow measurements and compatibility
 
 Flows with any branch or loop use **result schema 6**, locally, on workers,
-and with telemetry. Sequential tests retain schemas 3/4/5. Earlier configuration
-files continue to work, and dashboard imports accept schemas 2–7. Run current
+and with telemetry. Sequential tests retain schemas 3/4/5 unless finite iterations (7), schedules
+(8), or custom failure actions (9) select a newer schema. Earlier configuration
+files continue to work, and dashboard imports accept schemas 2–9. Run current
 binaries on all workers; older binaries reject the new configuration fields.
 
 For each request node in schema 6:
@@ -349,7 +353,8 @@ For each request node in schema 6:
 Controls have stable source `path`, `name`, and `kind` identities and bounded
 aggregate counters: `entered`, `completed`, `failed`, `condition_true`,
 `condition_false`, `iterations` (body starts, including failed iterations), and
-`condition_errors`. An enclosing control fails when a child fails. Fixed loops
+`condition_errors`. An enclosing control fails when execution aborts inside it. Under Continue,
+controls can complete structurally even when child HTTP requests failed. Fixed loops
 have zero condition counters; while loops include their final condition check.
 Controls have no HTTP latency. Journey errors can occur with zero HTTP failures,
 for example an exhausted while limit. Request and journey criteria both matter.

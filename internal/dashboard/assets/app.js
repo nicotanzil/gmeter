@@ -7,6 +7,9 @@ let selectedRuns = new Set(), timer = null, polling = false, telemetryFormError 
 let coverage = [];
 const fmt = (value, digits = 1) => Number(value || 0).toLocaleString(undefined, {maximumFractionDigits: digits, minimumFractionDigits: digits});
 const count = value => Number(value || 0).toLocaleString();
+const errorActions = {next_iteration:'Start next iteration',continue:'Continue journey',stop_user:'Stop this user'};
+const errorHelp = {next_iteration:'Skip the remaining journey steps, then start the next iteration.',continue:'Attempt later steps and loop iterations. Failed requests and journeys still count as errors. Failed verification publishes no extracted values.',stop_user:'Skip the remaining journey and stop this user’s future iterations. Other users continue. Any user stopped on error fails the run.'};
+const stopReasons = {iterations:'iterations completed',duration:'duration reached',interrupted:'interrupted',users_stopped:'users stopped after errors'};
 const active = run => run && ['running', 'stopping'].includes(run.status);
 const node = (tag, text, className) => { const e = document.createElement(tag); if (text !== undefined) e.textContent = text; if (className) e.className = className; return e; };
 const builderGrid = $('builder-settings'), editorPanel = builderGrid.querySelector('.editor-panel');
@@ -117,6 +120,10 @@ function syncForm(c, replaceJourneyDraft = false) {
   $('body').value = c.body || ''; $('body-field').hidden = journey;
   $('success-statuses').value = (c.success_statuses || []).join(', ');
   $('insecure').checked = !!c.insecure; $('tls-warning').hidden = !c.insecure;
+  $('ramp-up').value = c.ramp_up || ''; $('startup-delay').value = c.startup_delay || ''; $('user-schedule-fields').hidden = rateMode;
+  $('ramp-up').disabled = rateMode; $('startup-delay').disabled = rateMode;
+  $('on-error').value = c.on_error || 'next_iteration'; $('on-error').disabled = rateMode; $('on-error-field').hidden = rateMode;
+  $('on-error-help').textContent = errorHelp[c.on_error || 'next_iteration'] || 'Choose a supported failure action.';
   $('think-time').value = c.think_time || ''; $('think-field').hidden = rateMode;
   $('threshold-p95').value = c.thresholds?.p95 || '';
   $('threshold-errors').value = c.thresholds?.max_error_percent === undefined ? 0 : c.thresholds.max_error_percent ?? '';
@@ -125,7 +132,7 @@ function syncForm(c, replaceJourneyDraft = false) {
   $('journey-builder-note').hidden = !journey; $('journey-checks-note').hidden = !journey;
   $('model-help').textContent = rateMode ? 'New work arrives at your chosen rate, even when the server slows down.' : 'Each user waits for its response, then repeats. Slower responses reduce request throughput.';
   $('staged-field').hidden = !rateMode; $('staged').checked = stages; $('phase-editor').hidden = !stages;
-  $('traffic-options').open = stages;
+  $('traffic-options').open = stages || !!c.ramp_up || !!c.startup_delay || !!c.on_error;
   renderHeaderRows(c.headers || {}); renderStageRows(c.stages || []); updatePreview(c);
   $('diagnostics').value = c.diagnostics === false ? 'false' : 'true';
   $('workers').value = (c.workers || []).join('\n');
@@ -197,15 +204,26 @@ function updateBuilder() {
     const c = readEditor(true);
     for (const key of ['name', 'url', 'method', 'duration', 'timeout']) c[key] = $(key).value;
     for (const [id,key] of [['rate','rate'],['vus','vus'],['capacity','max_in_flight']]) {
+      if ($(id).disabled) continue;
       if (!$(id).value.trim() || !Number.isFinite(Number($(id).value))) throw new Error('Enter a number for ' + {rate:'offered rate',vus:'concurrent users',capacity:'concurrency cap'}[id] + '.');
       c[key] = Number($(id).value);
     }
+    if (c.mode === 'users') c.rate = 0;
     if (c.mode === 'users' && $('stop-condition').value !== 'duration') {
       const value = Number($('iterations').value);
       if (!$('iterations').value.trim() || !Number.isInteger(value) || value < 1 || value > 1000000) throw new Error('Enter 1 to 1000000 iterations per user.');
       c.iterations = value;
       if ($('stop-condition').value === 'iterations') c.duration = '';
     } else delete c.iterations;
+    for (const [id,key] of [['ramp-up','ramp_up'],['startup-delay','startup_delay']]) {
+      const value = $(id).value.trim(), seconds = durationSeconds(value, true);
+      if (c.mode === 'users' && value) {
+        if (seconds === null || seconds > 86400) throw new Error('Use a duration from 0s to 24h for ' + (id === 'ramp-up' ? 'user ramp-up.' : 'startup delay.'));
+        c[key] = value;
+      } else delete c[key];
+    }
+    if (c.mode === 'users' && $('on-error').value !== 'next_iteration') c.on_error = $('on-error').value; else delete c.on_error;
+    $('on-error-help').textContent = errorHelp[c.on_error || 'next_iteration'];
     c.diagnostics = $('diagnostics').value === 'true'; c.insecure = $('insecure').checked;
     c.arrival_distribution = $('distribution').value;
     if (!c.scenarios?.length) c.body = $('body').value;
@@ -247,16 +265,19 @@ function updateBuilder() {
   } catch (e) { builderFormError = e.message; validateMessage(builderFormError, 'bad'); $('plan-preview').replaceChildren(node('p', 'Fix the configuration before running.', 'helper')); $('plan-compact').textContent = 'Fix the configuration before running'; }
   finally { updateInlineHints(); }
 }
-function durationSeconds(value) {
+function durationSeconds(value, allowZero = false) {
   // Matches the positive durations accepted by Go, including compound units.
   const units = {ns:1e-9, us:1e-6, 'µs':1e-6, 'μs':1e-6, ms:1e-3, s:1, m:60, h:3600};
   let rest = String(value || '').replace(/^\+/, ''), total = 0;
+  if (!rest) return null;
+  if (allowZero && rest === '0') return 0;
   while (rest) { const part = /^(\d+(?:\.\d*)?|\.\d+)(ns|us|µs|μs|ms|s|m|h)/.exec(rest); if (!part) return null; total += Number(part[1])*units[part[2]]; rest = rest.slice(part[0].length); }
-  return total > 0 ? total : null;
+  return total > 0 || allowZero ? total : null;
 }
 function updateInlineHints() {
   const duration = $('duration');
   const hints = [
+    ...['ramp-up','startup-delay'].map(id => [id, !$(id).disabled && $(id).value.trim() && (durationSeconds($(id).value.trim(), true) === null || durationSeconds($(id).value.trim(), true) > 86400) ? 'Use a duration from 0s to 24h.' : '']),
     ['iterations', !$('iterations').disabled && (!$('iterations').value.trim() || !$('iterations').validity.valid) ? 'Enter a whole number from 1 to 1000000.' : ''],
     ['duration', !duration.disabled && durationSeconds(duration.value) === null ? 'Enter a positive duration, such as 10s or 2m.' : ''],
     ['threshold-p95', $('threshold-p95').value.trim() && durationSeconds($('threshold-p95').value.trim()) === null ? 'Use a positive duration, such as 200ms.' : ''],
@@ -284,12 +305,18 @@ function updatePreview(c) {
     c.iterations > 0 ? `${count(c.vus * c.iterations)} ${c.duration ? 'maximum' : 'planned'} ${unit} · ${stopping}` : seconds === null ? 'Enter a valid load duration' : `${fmt(seconds)}s load window`,
     c.mode === 'rate' && planned !== null ? `${count(planned)} planned ${unit}; some may be missed` : 'Throughput depends on response time',
     c.workers?.length ? `Run on ${c.workers.length} workers` : 'Run on this machine'];
+  if (c.mode === 'users' && (c.ramp_up || c.startup_delay)) {
+    const ramp = durationSeconds(c.ramp_up, true) || 0, delay = durationSeconds(c.startup_delay, true) || 0;
+    rows.push(`${fmt(delay)}s startup wait before load · ${fmt(ramp)}s user ramp`, `First user at ${fmt(delay)}s; last planned start at ${fmt(delay + ramp*(c.vus-1)/c.vus)}s from run start`);
+    if (seconds !== null && ramp*(c.vus-1)/c.vus >= seconds) rows.push('The duration limit closes before every user can start.');
+  }
+  if (c.mode === 'users') rows.push('After a failed request: ' + (errorActions[c.on_error || 'next_iteration'] || c.on_error));
   if (c.insecure) rows.push('HTTPS verification disabled');
   $('plan-preview').replaceChildren(...rows.map((text,i) => node('p', text, i===1 ? 'preview-target' : '')));
   const checks = node('div', undefined, 'preview-checks'), title = node('h3', 'Pass criteria');
   checks.append(title);
   const enabled = value => value !== null && value !== undefined && String(value).trim() !== '';
-  const limits = c.thresholds || {}, values = [
+  const limits = {max_error_percent:0,max_drop_percent:0,...c.thresholds}, values = [
     [limits.p95, value => `Request p95 ≤ ${value}`],
     [limits.max_error_percent, value => `Request errors ≤ ${value}%`],
     [limits.max_drop_percent, value => `Missed arrivals ≤ ${value}%`],
@@ -297,10 +324,11 @@ function updatePreview(c) {
   ];
   const list = node('div', undefined, 'preview-check-list');
   for (const [value, label] of values) if (enabled(value)) list.append(node('span', label(value)));
+  if (c.on_error === 'stop_user') list.append(node('span', 'No users stopped on error'));
   if (!list.childElementCount) list.append(node('p', 'No pass criteria enabled.', 'helper'));
   checks.append(list); $('plan-preview').append(checks);
 }
-for (const id of ['name','url','method','duration','iterations','timeout','rate','vus','capacity','distribution','diagnostics','workers','body','success-statuses','insecure','think-time','threshold-p95','threshold-errors','threshold-drops','threshold-rps']) $(id).addEventListener('input', updateBuilder);
+for (const id of ['name','url','method','duration','iterations','timeout','rate','vus','capacity','distribution','diagnostics','workers','body','success-statuses','insecure','think-time','ramp-up','startup-delay','on-error','threshold-p95','threshold-errors','threshold-drops','threshold-rps']) $(id).addEventListener('input', updateBuilder);
 $('stop-condition').addEventListener('change', () => { syncStoppingFields(); updateBuilder(); });
 $('add-header').addEventListener('click', () => { addHeaderRow(); $('header-rows').lastElementChild.querySelector('input').focus(); });
 $('staged').addEventListener('change', () => {
@@ -320,7 +348,7 @@ $('mode').addEventListener('change', () => {
   try {
     const c = readEditor(); c.mode = $('mode').value;
     if (c.mode === 'users') { c.rate = 0; delete c.stages; c.arrival_distribution = 'constant'; }
-    else { c.rate = c.rate || 20; delete c.think_time; delete c.iterations; c.duration = c.duration || '10s'; }
+    else { c.rate = c.rate || 20; delete c.think_time; delete c.iterations; delete c.ramp_up; delete c.startup_delay; delete c.on_error; c.duration = c.duration || '10s'; }
     $('config-json').value = JSON.stringify(c, null, 2); syncForm(c); validateMessage('Configuration changed. Validate or start a run.');
   } catch (e) { validateMessage(e.message, 'bad'); }
 });
@@ -461,14 +489,23 @@ function renderRun() {
   $('run-status').textContent = run.status.toUpperCase(); $('run-status').className = 'status ' + run.status;
   $('stop').hidden = !activeID || run.id !== activeID; $('stop').disabled = run.status === 'stopping';
   $('view-active').hidden = !activeID || run.id === activeID;
-  $('phase-name').textContent = latest.phase ? `${latest.draining && active(run) ? 'Draining · ' : ''}${latest.phase}` : 'Preparing';
+  const schedule = run.result?.user_schedule || latest.user_schedule;
+  $('phase-name').textContent = schedule?.waiting && active(run) ? 'Waiting to start' : latest.phase ? `${latest.draining && active(run) ? 'Draining · ' : ''}${latest.phase}` : 'Preparing';
   $('elapsed').textContent = `${fmt(latest.load_seconds)} / ${fmt(run.planned_seconds)}s load${latest.elapsed_seconds > latest.load_seconds + .05 ? ` · ${fmt(latest.elapsed_seconds - latest.load_seconds)}s ${run.config.workers?.length||run.config.telemetry ? 'drain + collection' : 'drain'}` : ''}`;
   if (run.config.iterations > 0) {
     const target = run.config.vus * run.config.iterations;
-    $('elapsed').textContent = `${count(traffic.completed)} / ${count(target)} ${run.workload} · ${fmt(latest.load_seconds)}s load${run.planned_seconds ? ' · ' + fmt(run.planned_seconds) + 's limit' : ''}${run.result?.stop_reason ? ' · Stopped: ' + {iterations:'iterations completed',duration:'duration reached',interrupted:'interrupted'}[run.result.stop_reason] : ''}`;
+    $('elapsed').textContent = `${count(traffic.completed)} / ${count(target)} ${run.workload} · ${fmt(latest.load_seconds)}s load${run.planned_seconds ? ' · ' + fmt(run.planned_seconds) + 's limit' : ''}${run.result?.stop_reason ? ' · Stopped: ' + (stopReasons[run.result.stop_reason] || run.result.stop_reason) : ''}`;
     $('progress').max = target; $('progress').value = traffic.completed || 0;
   } else { $('progress').max = run.planned_seconds || 1; $('progress').value = latest.load_seconds || 0; }
   $('progress').setAttribute('aria-label', run.config.iterations > 0 ? `Completed ${run.workload} toward the iteration limit` : 'Admission window progress');
+  if (schedule) {
+    const remainder = Math.max(0, (latest.elapsed_seconds || 0) - schedule.startup_seconds - (latest.load_seconds || 0));
+    const load = run.config.iterations > 0 ? $('elapsed').textContent : `${fmt(latest.load_seconds)} / ${fmt(run.planned_seconds)}s load${run.result?.stop_reason ? ' · Stopped: ' + (stopReasons[run.result.stop_reason] || run.result.stop_reason) : ''}`;
+    $('elapsed').textContent = `${schedule.waiting && active(run) ? 'Waiting: ' : 'Startup: '}${fmt(schedule.startup_seconds)} / ${fmt(schedule.planned_startup_seconds)}s · ${load}${remainder > .05 ? ' · ' + fmt(remainder) + 's drain / collection' : ''} · ${count(schedule.users.active)} active users · ${count(schedule.users.started)} / ${count(schedule.users.planned)} started`;
+  }
+  const failure = run.result?.failure_policy || latest.failure_policy;
+  if (failure) $('elapsed').textContent += ` · ${errorActions[failure.action]} · ${count(failure.users_stopped)} users stopped on error`;
+  if (!schedule && !run.config.iterations && run.result?.stop_reason) $('elapsed').textContent += ' · Stopped: ' + (stopReasons[run.result.stop_reason] || run.result.stop_reason);
   $('metric-rps').textContent = fmt(r.started_rps); $('metric-requests').textContent = `${count(r.started)} HTTP attempts · ${count(r.in_flight)} in flight`;
   $('metric-latency').textContent = r.latency?.samples ? fmt(r.latency.p95_ms) + ' ms' : '—';
   $('metric-errors').textContent = fmt(r.error_percent, 2) + '%'; $('metric-errors').classList.toggle('bad', !!r.failed);
@@ -477,7 +514,8 @@ function renderRun() {
   $('metric-missed').textContent = `${count((traffic.dropped_capacity || 0) + (traffic.dropped_scheduler || 0))} / ${count(traffic.scheduled)} ${run.workload}`;
   $('journey-summary').hidden = !journeys; $('journey-key').hidden = !journeys;
   $('journey-summary').replaceChildren(...[`${fmt(j.started_per_second)} journeys/s`, `${count(j.completed)} completed journeys`, `Journey p95 ${j.latency?.samples ? fmt(j.latency.p95_ms) + ' ms' : '—'}`, `${fmt(j.error_percent, 2)}% journey errors`].map(t => node('span', t)));
-  $('traffic-unit').textContent = journeys ? 'HTTP req/s + journeys/s' : 'req/s'; $('phase-unit').textContent = run.config.mode === 'users' ? 'concurrent users' : (journeys ? 'journeys/s' : 'requests/s');
+  $('phase-title').textContent = run.config.mode === 'users' ? 'User schedule' : 'Admission phases';
+  $('traffic-unit').textContent = journeys ? 'HTTP req/s + journeys/s' : 'req/s'; $('phase-unit').textContent = run.config.mode === 'users' ? 'planned starts / observed active users' : (journeys ? 'journeys/s' : 'requests/s');
   $('results-panel').hidden = !run.result;
   $('run-journey-canvas').hidden = !run.result?.scenarios?.length;
   if (!$('run-journey-canvas').hidden) runJourneyEditor.loadRun(run);
@@ -669,7 +707,27 @@ function drawCharts() {
     phasePoints.push([offset, target], [offset + d, target]);
     offset += d; return node('span', `${p.name || 'Phase'} · ${current.config.mode === 'rate' ? (p.rate || 0) + '/s' : current.config.vus + ' users'} · ${current.config.iterations ? count(current.config.iterations) + ' iterations/user' + (p.duration ? ' or ' + p.duration : '') : p.duration}`);
   }));
-  drawChart('phase-chart', [{points: phasePoints, color: colors.teal, step: true}], current.planned_seconds || offset || 1);
+  const userSchedule = current.result?.user_schedule || current.samples.at(-1)?.user_schedule;
+  if (userSchedule) {
+    const delay = userSchedule.planned_startup_seconds, ramp = userSchedule.ramp_up_seconds, users = current.config.vus;
+    const lastStart = delay + ramp*(users-1)/users;
+    const horizon = current.planned_seconds ? delay + current.planned_seconds : Math.max(end,lastStart);
+    const plannedUsers = [[0,0]], points = Math.min(users,200);
+    if (!ramp) plannedUsers.push([delay,users]);
+    else for (let i=0;i<points;i++) {
+      const index = points === 1 ? 0 : Math.floor(i*(users-1)/(points-1)), due = delay + ramp*index/users;
+      if (due >= horizon && current.planned_seconds) break;
+      plannedUsers.push([due,index+1]);
+    }
+    plannedUsers.push([Math.max(horizon,end),plannedUsers.at(-1)[1]]);
+    const observed = current.samples.map(s=>[s.elapsed_seconds,s.user_schedule?.users.active ?? null]);
+    $('phase-list').replaceChildren(node('span',`Planned user starts (gray) · observed active users (blue, sampled) · ${fmt(delay)}s startup · ${fmt(ramp)}s ramp${users>200?' · plan simplified to 200 points':''}`));
+    $('phase-chart').setAttribute('aria-label','Planned user starts and sampled active users over wall time');
+    drawChart('phase-chart', [{points:plannedUsers,color:colors.gray,dashed:true,step:true},{points:observed,color:colors.blue,step:true}], Math.max(horizon,end) || 1);
+  } else {
+    $('phase-chart').setAttribute('aria-label','Configured phase targets over elapsed time');
+    drawChart('phase-chart', [{points: phasePoints, color: colors.teal, step: true}], current.planned_seconds || offset || 1);
+  }
   if (!$('generator-panel').hidden) {
     const cpu=[],heap=[],memory=[];
     for (const sample of current.samples) {
@@ -752,7 +810,7 @@ $('compare').addEventListener('click', async () => {
     }
     // Configuration mismatches are visible; no causal or automatic verdict.
     const mismatches = [];
-    for (const [key, label] of [['url', 'target'], ['mode', 'model'], ['rate', 'rate'], ['stages', 'phases'], ['duration', 'planned duration'], ['iterations', 'iterations per user'], ['vus', 'user count'], ['max_in_flight', 'capacity'], ['scenarios', 'journey definitions'], ['method', 'method'], ['body', 'body'], ['headers', 'headers'], ['timeout', 'timeout'], ['think_time', 'think time'], ['arrival_distribution', 'arrival spacing'], ['seed', 'seed'],['workers','worker pool'],['telemetry','target telemetry']]) if (JSON.stringify(a.config[key]) !== JSON.stringify(b.config[key])) mismatches.push(label);
+    for (const [key, label] of [['url', 'target'], ['mode', 'model'], ['rate', 'rate'], ['stages', 'phases'], ['duration', 'planned duration'], ['iterations', 'iterations per user'], ['ramp_up', 'user ramp'], ['startup_delay', 'startup delay'], ['vus', 'user count'], ['max_in_flight', 'capacity'], ['scenarios', 'journey definitions'], ['method', 'method'], ['body', 'body'], ['headers', 'headers'], ['timeout', 'timeout'], ['think_time', 'think time'], ['arrival_distribution', 'arrival spacing'], ['seed', 'seed'],['workers','worker pool'],['telemetry','target telemetry']]) if (JSON.stringify(a.config[key]) !== JSON.stringify(b.config[key])) mismatches.push(label);
     if (A.workload !== B.workload) mismatches.push('arrival unit'); if (A.interrupted || B.interrupted) mismatches.push('partial run');
     const hasDiagnostics=result=>!!(result.generator||result.http||result.distribution?.workers?.some(w=>w.generator||w.requests?.http));
     if (!!a.config.insecure !== !!b.config.insecure) mismatches.push('HTTPS certificate verification');
@@ -760,6 +818,7 @@ $('compare').addEventListener('click', async () => {
     const environment=result=>result.distribution ? result.distribution.workers.filter(w=>w.generator).map(w=>[w.index,w.generator.platform,w.generator.go_version,w.generator.logical_cpus,w.generator.final.gomaxprocs]) : (result.generator ? [[0,result.generator.platform,result.generator.go_version,result.generator.logical_cpus,result.generator.final.gomaxprocs]] : []);
     const envA=environment(A),envB=environment(B);
     if (envA.length && envB.length && JSON.stringify(envA)!==JSON.stringify(envB)) mismatches.push('generator environment');
+    if ((a.config.on_error || 'next_iteration') !== (b.config.on_error || 'next_iteration')) mismatches.push('failure action');
     $('comparison-warning').hidden = !mismatches.length; $('comparison-warning').textContent = 'Conditions differ: ' + mismatches.join(', ') + '.';
     $('comparison-table').replaceChildren(makeTable(['Measurement', `${a.name} (A)`, `${b.name} (B)`, 'B − A'], rows));
     $('comparison').hidden = false; $('comparison').scrollIntoView({behavior: 'smooth', block: 'start'});

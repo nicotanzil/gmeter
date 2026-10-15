@@ -161,7 +161,7 @@ populations keep the rules in [diagnostics.md](diagnostics.md).
 Sequential distributed reports use **schema 4**, with `distribution` and worker
 summaries, or **schema 5** with target-server telemetry. Branch/loop flows use
 **schema 6** in either case. Sequential local reports use schema 3 or schema 5
-with telemetry. The dashboard imports schemas 2–7 and
+with telemetry. The dashboard imports schemas 2–9 and
 preserves worker lists/results across restart and export. Timeline points retain
 compact worker counters within the 900-point limit. Control responses are capped
 at 32 MiB; bundles retain the 16 MiB limit. Raw histogram transfer states are

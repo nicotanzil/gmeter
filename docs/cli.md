@@ -58,6 +58,9 @@ precedence over an unspecified flag.
 | `-mode` | `users` | `users` or `rate` |
 | `-duration` | `10s` | Admission window; configured phases take precedence |
 | `-iterations` | `0` | Iterations per user, users mode only. A positive explicit flag clears duration unless `-duration` is also supplied, including when overriding a file |
+| `-ramp-up` | `0s` effective | Stagger virtual-user starts; users mode only; 0–24h |
+| `-startup-delay` | `0s` effective | Wait before the load window; users mode only; 0–24h |
+| `-on-error` | `next_iteration` effective | Users mode: `next_iteration`, `continue`, or `stop_user`; an explicit empty string resets the default |
 | `-vus` | `10` | Concurrent users in users mode |
 | `-rate` | `0` | Workload arrivals/s; explicitly setting it removes phases |
 | `-max-in-flight` | `100` | Concurrent requests or whole journeys in rate mode |
@@ -164,3 +167,15 @@ For a finite run with 10 users making five attempts each:
 Add `-duration 1m` to stop at either limit. One iteration means one request or,
 with a journey configuration, one selected journey attempt. Errors consume an
 iteration. The summary and artifacts report the stop reason.
+
+Stagger four users across a four-second ramp after waiting two seconds:
+
+```sh
+./bin/gmeter run -url http://127.0.0.1:8787/work -vus 4 -iterations 3 \
+  -startup-delay 2s -ramp-up 4s
+```
+
+Starts are planned at 2, 3, 4, and 5 seconds from run start. Add `-duration 10s`
+to cap admission at 10 seconds after the startup wait. Explicit `0s` overrides
+disable configured ramps or startup delays. The load-rate denominator excludes
+startup waiting; full elapsed time includes startup, load, drain, and collection.

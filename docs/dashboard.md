@@ -61,7 +61,7 @@ request pass criteria. Both tabs and Advanced JSON edit the same CLI configurati
    dataset rows, timeout, and journey pass criteria. Add or duplicate journeys
    to build a weighted mix. Dataset rows contain string values with identical keys.
 5. Use **Preview sequence** for a traffic-free walkthrough; **Preview failure
-   here** illustrates the engine's stop-and-skip behavior. It does not simulate
+   here** illustrates the selected failure action. It does not simulate
    responses or assertion outcomes. **Validate** performs authoritative engine
    validation. Save the scenario, then explicitly choose **Start run**.
 
@@ -110,7 +110,8 @@ bypasses from the total. Controls have no HTTP latency.
 Both editors update the same configuration. With phases present, their rates
 and durations control the workload; the single-duration/rate fields are hidden.
 **Use a single rate** removes phases and sets a rate of 20/s. Switching to users
-mode removes rate phases and jitter; switching to rate mode removes think time.
+mode removes rate phases and jitter; switching to rate mode removes think time,
+user ramp, startup delay, and iteration limits.
 Journey tests label rates as journeys/second and put HTTP methods on steps.
 
 **Validate** uses the strict parser and engine validation without sending traffic.
@@ -225,7 +226,7 @@ regression verdict.
 | Run + timeline | Configuration, final results, retained timeline | Yes |
 
 Use **Import JSON** or **Import run** for run bundles. Imports require final
-schema 2–7 results, validate configuration, final count equations, and telemetry
+schema 2–9 results, validate configuration, final count equations, and telemetry
 observation bounds/accounting when present, have a 16 MiB
 limit, and assign a new ID. They send no traffic. Imported runs are marked
 **IMPORTED**; their original traffic has not been independently verified.
@@ -311,3 +312,44 @@ the count target. Iterations are unavailable in rate mode.
 
 Schema 7 bundles retain these settings and validate the count and stopping
 reason on import. Existing schema 2–6 bundles remain supported.
+
+## User ramps and startup delay
+
+Under **Test settings → Concurrent users → Traffic options**, set **Startup
+delay** and **User ramp-up**. Blank or `0s` starts all users immediately. The
+preview shows the first/last planned start and warns when duration will close
+before every user starts. **Gradual users with finite iterations** is a built-in
+example. Loading or validating the example sends no traffic.
+
+During startup, Live shows **Waiting to start**, zero load seconds, and no
+workload attempts. Afterward, it shows active users and total started users.
+**User schedule** overlays planned starts (gray) and observed active users
+(blue). Planned starts accumulate; active users can fall as finite users finish.
+The observed line is sampled about once per second and can miss short activity.
+Plans above 200 users use a simplified 200-point preview. This is a user lifecycle
+chart, not HTTP concurrency or a target request rate.
+
+Final schema 8 bundles preserve startup waiting separately from load and drain,
+with user counts and schedule timeline validation. Existing schema 2–7 bundles
+remain supported. A duration-limited run can pass while later users never start;
+unstarted future work is not dropped demand. Worker execution remains rate-only.
+
+## After a failed request
+
+In **Concurrent users** mode, open **Traffic options** and choose **After a
+failed request**. **Start next iteration** skips the rest of that journey.
+**Continue journey** attempts later steps and loop iterations while retaining
+failed request and journey counts. **Stop this user** ends only that user's
+current journey and future iterations; peers continue. The plan preview shows
+the action and the mandatory stopped-user criterion when applicable.
+
+The journey inspector and simple sequence failure preview follow this setting.
+Previews send no traffic and cannot predict responses, missing variables, or
+branch decisions. Journey deadlines and safety limits still abort a journey.
+Failed verification publishes no extracted values.
+
+Live and final results show the selected custom action and users stopped on
+error. A stopped user fails the run even with disabled error thresholds. History
+comparison flags a different failure action. Schema 9 run bundles preserve the
+policy and validate its counts and timeline on import; older schemas remain
+supported. See [configuration](configuration.md#failure-actions) for details.

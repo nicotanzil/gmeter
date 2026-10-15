@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"gmeter/internal/config"
 	"gmeter/internal/design"
 	"gmeter/internal/engine"
 	"gmeter/internal/telemetry"
@@ -65,12 +66,18 @@ func Write(path string, render func(io.Writer) error) error {
 }
 
 var page = template.Must(template.New("report").Funcs(template.FuncMap{
-	"designCSS":       func() template.CSS { return template.CSS(design.ReportCSS) },
-	"f":               func(v float64) string { return fmt.Sprintf("%.2f", v) },
-	"f1":              func(v float64) string { return fmt.Sprintf("%.1f", v) },
-	"mib":             func(v uint64) string { return fmt.Sprintf("%.2f", float64(v)/(1<<20)) },
-	"timingRows":      timingRows,
-	"telemetryValue":  telemetryValue,
+	"designCSS":      func() template.CSS { return template.CSS(design.ReportCSS) },
+	"f":              func(v float64) string { return fmt.Sprintf("%.2f", v) },
+	"f1":             func(v float64) string { return fmt.Sprintf("%.1f", v) },
+	"mib":            func(v uint64) string { return fmt.Sprintf("%.2f", float64(v)/(1<<20)) },
+	"timingRows":     timingRows,
+	"telemetryValue": telemetryValue,
+	"errorAction": func(action string) string {
+		return map[string]string{config.NextIteration: "Start next iteration", config.ContinueJourney: "Continue journey", config.StopUser: "Stop this user"}[action]
+	},
+	"stopReason": func(reason string) string {
+		return map[string]string{"iterations": "iterations completed", "duration": "duration reached", "interrupted": "interrupted", "users_stopped": "users stopped after errors"}[reason]
+	},
 	"telemetryRate":   telemetryRate,
 	"telemetryLabels": telemetryLabels,
 	"lastIndex":       func(points []telemetry.Snapshot) int { return len(points) - 1 },
@@ -82,8 +89,14 @@ var page = template.Must(template.New("report").Funcs(template.FuncMap{
 		return s
 	},
 	"dropped": func(s, c int64) int64 { return s + c },
-	"drain":   func(total, load float64) string { return fmt.Sprintf("%.2f", total-load) },
-	"label":   func(s string) string { return strings.ReplaceAll(s, "_", " ") },
+	"drain": func(total, load float64, schedule *engine.UserSchedule) string {
+		startup := 0.0
+		if schedule != nil {
+			startup = schedule.StartupSeconds
+		}
+		return fmt.Sprintf("%.2f", max(0, total-load-startup))
+	},
+	"label": func(s string) string { return strings.ReplaceAll(s, "_", " ") },
 	"width": func(actual float64, target int) float64 {
 		if target <= 0 {
 			return 0
@@ -113,8 +126,10 @@ header{display:flex;justify-content:space-between;align-items:center;border-bott
 {{designCSS}}
 </style></head><body><main>{{$traffic := .Arrivals}}
 <header><div class="brand">g<span>meter</span></div><div class="tag">Find your system's limits</div></header>
-<section class="hero"><div class="eyebrow">HTTP stress test · {{.Mode}} mode · {{if eq .Workload "journeys"}}journey workload{{else}}request workload{{end}}</div><h1>{{.Name}}<span class="badge {{if not .Passed}}fail{{end}}">{{if .Interrupted}}INTERRUPTED{{else if .Passed}}PASS{{else}}FAIL{{end}}</span></h1><div class="target">{{if ne .Workload "journeys"}}{{.Method}} {{end}}{{.URL}}</div><div class="details"><span>{{.StartedAt.Format "2006-01-02 15:04:05 UTC"}}</span><span>{{f .LoadSeconds}}s load · {{drain .TotalSeconds .LoadSeconds}}s {{if or .Distribution .Telemetry}}drain + collection{{else}}drain{{end}}</span><span>{{.ConcurrencyLimit}} concurrent {{if eq .Workload "journeys"}}journey{{else}}request{{end}} limit</span><span>{{.ArrivalDistribution}} arrivals</span></div></section>
-{{if .Iterations}}<div class="details"><span>{{.ConcurrencyLimit}} users × {{.Iterations}} iterations per user</span><span>Stopped: {{if eq .StopReason "iterations"}}iterations completed{{else if eq .StopReason "duration"}}duration reached{{else}}{{.StopReason}}{{end}}</span>{{if .PlannedLoadSeconds}}<span>{{f .PlannedLoadSeconds}}s admission limit</span>{{end}}</div>{{end}}
+<section class="hero"><div class="eyebrow">HTTP stress test · {{.Mode}} mode · {{if eq .Workload "journeys"}}journey workload{{else}}request workload{{end}}</div><h1>{{.Name}}<span class="badge {{if not .Passed}}fail{{end}}">{{if .Interrupted}}INTERRUPTED{{else if .Passed}}PASS{{else}}FAIL{{end}}</span></h1><div class="target">{{if ne .Workload "journeys"}}{{.Method}} {{end}}{{.URL}}</div><div class="details"><span>{{.StartedAt.Format "2006-01-02 15:04:05 UTC"}}</span><span>{{f .LoadSeconds}}s load · {{drain .TotalSeconds .LoadSeconds .UserSchedule}}s {{if or .Distribution .Telemetry}}drain + collection{{else}}drain{{end}}</span><span>{{.ConcurrencyLimit}} concurrent {{if eq .Workload "journeys"}}journey{{else}}request{{end}} limit</span><span>{{.ArrivalDistribution}} arrivals</span></div></section>
+{{if .UserSchedule}}<div class="details"><span>{{f .UserSchedule.StartupSeconds}}s startup wait / {{f .UserSchedule.PlannedStartupSeconds}}s planned</span><span>{{f .UserSchedule.RampUpSeconds}}s user ramp</span><span>{{.UserSchedule.Users.Started}} / {{.UserSchedule.Users.Planned}} users started · {{.UserSchedule.Users.Finished}} finished</span><span>Stopped: {{stopReason .StopReason}}</span></div>{{end}}
+{{if .FailurePolicy}}<div class="details"><span>Failure action: {{errorAction .FailurePolicy.Action}}</span><span>{{.FailurePolicy.UsersStopped}} users stopped on error</span><span>Stopped: {{stopReason .StopReason}}</span></div>{{end}}
+{{if .Iterations}}<div class="details"><span>{{.ConcurrencyLimit}} users × {{.Iterations}} iterations per user</span><span>Stopped: {{if eq .StopReason "iterations"}}iterations completed{{else if eq .StopReason "duration"}}duration reached{{else}}{{stopReason .StopReason}}{{end}}</span>{{if .PlannedLoadSeconds}}<span>{{f .PlannedLoadSeconds}}s admission limit</span>{{end}}</div>{{end}}
 {{if .Insecure}}<div class="warning">TLS verification disabled for workload HTTPS requests. Server certificates and hostnames were not verified.</div>{{end}}
 {{if or $traffic.DroppedCapacity $traffic.DroppedScheduler}}<div class="warning">{{n (dropped $traffic.DroppedCapacity $traffic.DroppedScheduler)}} scheduled {{if eq .Workload "journeys"}}journeys{{else}}requests{{end}} were not started. Latency describes only the work that ran.</div>{{end}}
 {{if .Interrupted}}<div class="warning">This run was interrupted. Future arrivals were not scheduled, and active requests were canceled. These results describe a partial test.</div>{{end}}

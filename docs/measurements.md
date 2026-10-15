@@ -43,7 +43,17 @@ tools. Counts describe logical workload execution; they are not wire captures.
   fields, and adding `iterations` (per user) and `stop_reason` (`iterations`,
   `duration`, or `interrupted`). `iterations` means all users finished their
   count; a duration stop can still pass normal error/latency checks with fewer
-  iterations. `workload` identifies the arrival unit.
+  iterations. Nonzero user ramp/startup schedules use schema 8, preserving those
+  fields and adding `user_schedule`: planned ramp/startup seconds, actual startup
+  waiting, and planned/started/finished/active users. Startup waiting is outside
+  load seconds and the throughput denominator; ramp time is inside load seconds.
+  `total_seconds` includes startup, load, drain, and collection. Diagnostics
+  and configured target telemetry also observe startup; exporter scrapes can
+  occur while workload requests are waiting. Active users
+  include iteration/journey pauses; they are not HTTP concurrency. Timeline
+  observations are sampled and can miss short-lived users. Unstarted future
+  users/iterations after a duration boundary or cancellation are not dropped
+  arrivals. `workload` identifies the arrival unit.
   `target_rate` is in that unit; `target_rps` is zero for journey workloads.
 - A **started** request is a dispatched logical HTTP attempt. Go's transport may
   transparently retry certain idempotent attempts on broken reused connections;
@@ -162,3 +172,26 @@ Branch and loop results separate HTTP attempts from distinct journeys that reach
 each request. `executed_journeys + skipped = scenario.journeys.started`; repeated
 attempts can exceed that journey count. See [flow measurements](scenarios.md#flow-measurements-and-compatibility)
 for conditional skips, control counts, and loop-limit errors.
+
+## Failure-policy results
+
+Users runs with `on_error: "continue"` or `"stop_user"` use schema 9, preserving
+finite-iteration, schedule, flow, diagnostics and telemetry fields. They add
+`failure_policy: {"action": "stop_user", "users_stopped": 2}` to the result and
+each dashboard timeline point. The default action retains the existing schema.
+
+`users_stopped` counts users ended by the error policy, at most once per user.
+It excludes manual cancellation. The mandatory `users_stopped_on_error` check
+requires zero; any positive count fails the run even with disabled thresholds.
+`stop_reason: "users_stopped"` means all users finished or stopped before the
+other limits; a duration or interruption can win first. Pending ramp users are
+not abandoned when another user stops. Future iterations are not missed arrivals
+and create no artificial HTTP attempts.
+
+Continuing a journey retains every failed attempt and marks the journey failed
+even if its final request succeeds. Control `completed` describes structurally
+finished scopes; under Continue a scope may complete with failed HTTP children.
+Journey failures, HTTP failures and stopped users measure different events.
+Bundle imports validate schema, matching policy, bounded and monotonic stopped
+counts, and reject a passing result with stopped users. These are native engine
+measurements, not proof of JMeter timing or throughput equivalence.

@@ -27,7 +27,7 @@ better throughput, accuracy, resource use, or target health.
 | Area | gmeter today | Work needed for JMeter coverage |
 | --- | --- | --- |
 | HTTP testing | Requests, journeys with nested branches and bounded loops, cookies, raw payloads, variable templates, header/scalar JSON extraction, basic assertions; verified or explicitly insecure HTTPS | Redirect chains, richer authentication, uploads, connection policies, additional selectors and assertions, client certificates |
-| Workloads | Fixed users with duration and/or finite per-user iterations, constant/jittered arrivals, rate phases, weighted journeys, fixed-count/while loops, if/else, bounded admission and explicit drops | User ramps and groups, foreach/once-only/switch, compound conditions, synchronization, setup/teardown, additional timer distributions |
+| Workloads | Fixed users with duration and/or finite per-user iterations, user ramps/startup delay, continue/next-iteration/stop-user error actions, constant/jittered arrivals, rate phases, weighted journeys, fixed-count/while loops, if/else, bounded admission and explicit drops | Independent user groups, foreach/once-only/switch, compound conditions, synchronization, setup/teardown, test-wide error stops, additional timer distributions |
 | Data and customization | Inline rows and scoped strings | File datasets, function library, processor hooks, scripting and extension APIs |
 | Other protocols | HTTP(S) | Database, directory, messaging, TCP, transfer, mail, process and Java adapters; Bolt; legacy support decisions |
 | Authoring and compatibility | Local web app, journey canvas, JSON plans, saved runs and portable bundles; guided JMX analysis and limited HTTP conversion | Recording, broader JMX component/scoping mappings, cross-engine conformance and external result exchange |
@@ -68,8 +68,10 @@ with explicit certificate and capture lifecycle; no implicit machine trust chang
 - [x] Typed HTTP sequences, nested if/else, fixed-count and bounded while loops,
   scoped counters, canvas editing, and request/control reporting.
 - [ ] Foreach, once-only, switch, interleave/random selection, transaction and runtime limits.
-- [ ] Scope/inheritance rules, shared fragments, setup/teardown and failure actions.
-- [ ] User ramps, group lifecycle, additional timers, barriers and critical sections.
+- [ ] Scope/inheritance rules, shared fragments, setup/teardown and test-wide failure actions.
+- [x] Users-mode continue, next-iteration and stop-user actions with JMX conversion; test-wide stops remain open.
+- [x] User ramps and startup delay, including default JMX ramp rounding.
+- [ ] Independent group lifecycle, additional timers, barriers and critical sections.
 - [ ] Distributed users and data deployment; worker failure/recovery contracts.
 - [ ] Bounded opt-in debug request/response samples, assertion traces and redaction.
 

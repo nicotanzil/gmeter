@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"net/http"
 	"net/url"
@@ -115,7 +116,7 @@ func Analyze(r io.Reader, options Options) (Report, error) {
 	if options.AcceptRuntime {
 		status = "mapped"
 	}
-	a.global("runtime", "gmeter runtime policies", status, "Review required: gmeter uses a 5s total request timeout, 30s journey deadline, 10 MiB response limit, verified HTTPS, bounded loops and aggregates, and drains admitted journeys after the load window. JMeter listeners are replaced by gmeter reports. Connection implementations, default headers, cookie edge cases, and timing statistics can differ. This is conversion to gmeter behavior, not a JMeter runtime emulator.")
+	a.global("runtime", "gmeter runtime policies", status, "Review required: gmeter uses a 5s total request timeout, 30s journey deadline, 10 MiB response limit, verified HTTPS, bounded loops and aggregates, and drains admitted journeys after the load window. gmeter uses one absolute group clock and creates user work at scheduled starts; JVM thread allocation is not preserved. JMeter listeners are replaced by gmeter reports. Connection implementations, default headers, cookie edge cases, and timing statistics can differ. This is conversion to gmeter behavior, not a JMeter runtime emulator.")
 	for _, input := range a.inputs {
 		a.report.Inputs = append(a.report.Inputs, input)
 		if !input.Supplied {
@@ -460,20 +461,57 @@ func (a *analyzer) group(t *tree) {
 			a.issue(t, "blocked", "A finite iteration count or scheduler duration is required. Unbounded execution is not imported.")
 		}
 	}
-	for _, name := range []string{"ThreadGroup.ramp_time", "ThreadGroup.delay"} {
-		value := t.e.value(name)
-		if value != "" && a.resolve(t, value, true) != "0" {
-			a.issue(t, "blocked", name+": user ramps and startup delay need engine support.")
+	for _, setting := range []struct {
+		name   string
+		target *string
+	}{
+		{"ThreadGroup.ramp_time", &a.cfg.RampUp},
+		{"ThreadGroup.delay", &a.cfg.StartupDelay},
+	} {
+		value := t.e.value(setting.name)
+		if value == "" {
+			continue
+		}
+		if setting.name == "ThreadGroup.delay" && t.e.value("ThreadGroup.scheduler") != "true" {
+			a.issue(t, "mapped", "Startup delay is inactive without the scheduler, as in JMeter. Its original value remains in the retained source.")
+			continue
+		}
+		seconds, err := strconv.Atoi(a.resolve(t, value, true))
+		if err != nil || seconds < 0 || seconds > 86400 {
+			a.issue(t, "blocked", setting.name+": must be 0–86400 seconds.")
+		} else if seconds > 0 {
+			d := time.Duration(seconds) * time.Second
+			if setting.name == "ThreadGroup.ramp_time" {
+				// JMeter 5.6.3 rounds the float32 per-thread interval to ms.
+				intervalMS := int64(math.Floor(float64(float32(seconds)*1000/float32(a.cfg.VUs)) + .5))
+				d = time.Duration(intervalMS) * time.Millisecond * time.Duration(a.cfg.VUs)
+				if d > 24*time.Hour {
+					a.issue(t, "blocked", "Rounded JMeter user ramp exceeds the native 24h limit.")
+					continue
+				}
+				if d != time.Duration(seconds)*time.Second {
+					a.issue(t, "mapped", fmt.Sprintf("JMeter rounds the user-start interval to %dms. The native ramp is %s to preserve that interval, including zero when all users start together.", intervalMS, d))
+				}
+			}
+			if d > 0 {
+				*setting.target = d.String()
+			}
 		}
 	}
-	if t.e.value("ThreadGroup.on_sample_error") != "startnextloop" {
-		a.issue(t, "blocked", "Only the ‘Start Next Thread Loop’ failure action maps to the current engine. Continue, stop-thread, and stop-test actions need engine support.")
+	switch a.resolve(t, t.e.value("ThreadGroup.on_sample_error"), true) {
+	case "startnextloop":
+	case "continue":
+		a.cfg.OnError = config.ContinueJourney
+	case "stopthread":
+		a.cfg.OnError = config.StopUser
+	default:
+		a.issue(t, "blocked", "Use an explicit Continue, Start Next Thread Loop, or Stop Thread failure action. Stop Test and Stop Test Now need test-wide execution support.")
 	}
 	if value := t.e.value("ThreadGroup.same_user_on_next_iteration"); value == "false" {
 		a.issue(t, "blocked", "Resetting user state between iterations needs engine support.")
 	}
 	if t.e.value("ThreadGroup.delayedStart") == "true" {
-		a.issue(t, "blocked", "Delayed thread creation needs engine support.")
+		a.issue(t, "blocked", "JMeter delayed thread creation uses a different ramp scheduler and still needs a reviewed mapping.")
 	}
 	if controller != nil && controller.attrs["elementType"] != "LoopController" {
 		a.issue(t, "blocked", "Custom thread-group controllers are not supported.")
@@ -486,8 +524,25 @@ func (a *analyzer) group(t *tree) {
 				stop += " or " + a.cfg.Duration + ", whichever comes first"
 			}
 		}
-		a.issue(t, "mapped", fmt.Sprintf("Converted workload: %d concurrent user(s) %s. A failed request or assertion stops the current journey and consumes one iteration. Admitted journeys drain under gmeter's runtime policies.", a.cfg.VUs, stop))
+		if a.cfg.RampUp != "" || a.cfg.StartupDelay != "" {
+			stop += fmt.Sprintf("; startup delay %s; user ramp %s (first user after startup, remaining starts at ramp × index / users)", defaultZero(a.cfg.StartupDelay), defaultZero(a.cfg.RampUp))
+		}
+		behavior := "A failed request or assertion stops the current journey and consumes one iteration."
+		if a.cfg.OnError == config.ContinueJourney {
+			behavior = "Failed requests/assertions remain errors; execution continues with the next request or loop body iteration. Failed verification does not publish extracted values."
+		}
+		if a.cfg.OnError == config.StopUser {
+			behavior = "A failed request or assertion stops that user's current journey and all its future iterations. Other users continue. A stopped user fails the mandatory users_stopped_on_error check."
+		}
+		a.issue(t, "mapped", fmt.Sprintf("Converted workload: %d concurrent user(s) %s. %s Admitted journeys drain under gmeter's runtime policies.", a.cfg.VUs, stop, behavior))
 	}
+}
+
+func defaultZero(value string) string {
+	if value == "" {
+		return "0s"
+	}
+	return value
 }
 
 type scope struct {

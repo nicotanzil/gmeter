@@ -95,7 +95,7 @@ func (r *runner) startJourney(phase, scenario int) {
 	r.scenarioStats[scenario].journeys.Start()
 }
 
-func (r *runner) journey(parent context.Context, scheduled time.Time, phase, selected int, id, user, iteration int64, client *http.Client) {
+func (r *runner) journey(parent context.Context, scheduled time.Time, phase, selected int, id, user, iteration int64, client *http.Client) string {
 	start := time.Now()
 	ctx, cancel := context.WithTimeout(parent, r.plan.JourneyLimit)
 	defer cancel()
@@ -127,11 +127,15 @@ func (r *runner) journey(parent context.Context, scheduled time.Time, phase, sel
 	if category == "" && ctx.Err() != nil {
 		category = contextCategory(ctx)
 	}
+	if category == "" && execution.failed {
+		category = "step_failed"
+	}
 	finish := time.Now()
 	sample := metrics.Sample{Error: category, Latency: finish.Sub(start), ScheduledLatency: finish.Sub(scheduled), StartDelay: start.Sub(scheduled)}
 	r.totalJourneys.Complete(sample)
 	r.phaseJourneys[phase].Complete(sample)
 	stats.journeys.Complete(sample)
+	return category
 }
 
 func contextCategory(ctx context.Context) string {

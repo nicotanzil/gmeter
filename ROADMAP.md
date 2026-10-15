@@ -62,7 +62,7 @@ of superiority over JMeter is justified until milestone 5 is complete.
 Read this file, README.md, docs/scenarios.md, docs/dashboard.md,
 docs/diagnostics.md, docs/workers.md, and docs/telemetry.md first. Continue
 the bundled JMeter parity program in docs/jmeter-parity.md. The next slice is
-user ramps/startup delay, followed by failure actions, then CSV datasets and
+test-wide failure actions (graceful/immediate stop), then CSV datasets and
 richer HTTP workflows. The journey canvas now edits
 requests, nested branches and loops, checks, extractions, data, variables, and
 per-journey criteria. Foreach, once-only, switch, shared fragments, and richer
@@ -86,7 +86,7 @@ journey arrivals and HTTP request attempts have separate counts and rates.
 - [x] Malformed/unsupported fixtures, counted native HTTP execution, persistence,
   authorization and source-provenance checks. See docs/jmx-import.md.
 - [ ] Broader JMX mappings and cross-engine conformance;
-  ramps, CSV data, redirects, richer controllers and failure actions remain open.
+  CSV data, redirects, richer controllers and failure actions remain open.
 
 ### Finite users iterations (after v0.3.0)
 
@@ -94,8 +94,8 @@ journey arrivals and HTTP request attempts have separate counts and rates.
 - [x] Builder stop choices, preview, progress, CLI flag, JSON and HTML reports.
 - [x] Finite JMX Thread Group loops with optional scheduler; no implicit time cap.
 - [x] Schema 7 stopping contract, native bundle round trips and consistency checks.
-- [ ] Next increment: user ramps and startup delay.
-- [ ] Following increments: failure actions, then CSV data.
+- [x] Next increment: user ramps and startup delay.
+- [ ] Following increments: test-wide failure actions, then CSV data.
 
 Validation: `make check build` passed, including vet, race tests, UI tests, and
 both binaries. Independent local-target tests cover exact per-user counts,
@@ -109,6 +109,55 @@ This verifies native conversion behavior, not cross-engine equivalence or
 comparative performance. The isolated review is at localhost:52740, with
 workspace data under `/private/tmp/gmeter-iterations-review` and QA images in
 ignored `work/iterations-qa/`.
+
+### User failure actions (14 October 2026)
+
+- [x] Default next iteration, continue journey, and stop this user in users mode.
+- [x] Retain request/journey failures and transactional verification semantics.
+- [x] Stop only the failed user; preserve peers and pending ramp starts.
+- [x] Mandatory stopped-user check, schema 9 metadata and bundle validation.
+- [x] Builder controls, preview, journey guidance, live results, CLI and HTML.
+- [x] Explicit JMX Continue/Start Next Thread Loop/Stop Thread mappings.
+- [ ] Next: test-wide graceful/immediate error stops, then CSV datasets.
+
+Focused execution tests cover nested loops, deadlines, safety limits, missing
+values after failed verification, peer isolation, cancellation, JMX conversion,
+CLI artifacts, and native bundle consistency. `make check build` passed all race
+tests, vet, UI tests and both builds; the final builder fix passed UI checks and
+build. Browser verification of the same nested plan observed 20 HTTP attempts
+with Continue, 4 with the default next iteration, and 2 with Stop this user.
+The last run failed its mandatory check with request/journey error thresholds
+disabled. Saved settings, rate-mode cleanup, simple failure previews, default
+criteria and the 320px layout were checked. Browser warning/error logs were
+empty on the final build. QA images are in ignored `work/failure-qa/`; the
+isolated dashboard is at localhost:52940. No cross-engine or capacity equivalence
+is claimed.
+
+### User ramps and startup delay (14 October 2026)
+
+- [x] Absolute user-start schedule, lazy user creation, cancellation of future starts.
+- [x] Separate startup/load/drain timing and sampled active/started/finished users.
+- [x] Builder controls, schedule preview/chart, CLI flags, starter and guides.
+- [x] JMX default ramp/scheduler delay conversion with explicit millisecond rounding.
+- [x] Schema 8 schedule contract, native bundle import validation and old schemas.
+- [ ] Next increment: test-wide failure actions, then CSV datasets.
+
+Validation: `make check build` passed vet, all race tests, UI tests and both
+binaries. Follow-up dashboard/starter and duration-only tests passed after final
+chart refinements. Fixtures cover scheduled first starts, retained per-user
+cookies, finite completion, one-user ramps, startup/ramp cancellation, duration
+closure with journey drain, JMeter millisecond rounding, inactive source delays,
+and schema 8 import/persistence consistency. The CLI emits JSON/HTML schedule data.
+Browser QA passed 12/12 HTTP attempts with all four users started, an early
+duration stop with 1/4 users started, and startup Stop with zero HTTP attempts.
+The guided ramped JMX plan completed 6 journeys / 18 HTTP attempts across three
+users. Invalid durations block execution, switching to rate mode removes user
+schedule fields, 320px builder/results have no page overflow, and console
+warning/error logs were empty. Observed users remain sampled, not exact peaks.
+This verifies native behavior against source-backed mapping rules; executing
+the same fixtures in JMeter and comparative performance remain unverified.
+Review: localhost:52840 with isolated `/private/tmp/gmeter-users-review` data;
+demo target localhost:52841; screenshots in ignored `work/users-qa/`.
 
 ### Executable control flow acceptance (10 October 2026)
 

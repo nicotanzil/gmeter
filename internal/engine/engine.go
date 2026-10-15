@@ -49,6 +49,8 @@ type Result struct {
 	ConcurrencyLimit    int                  `json:"concurrency_limit"`
 	Iterations          int                  `json:"iterations,omitempty"`
 	StopReason          string               `json:"stop_reason,omitempty"`
+	UserSchedule        *UserSchedule        `json:"user_schedule,omitempty"`
+	FailurePolicy       *FailurePolicy       `json:"failure_policy,omitempty"`
 	StartedAt           time.Time            `json:"started_at"`
 	PlannedLoadSeconds  float64              `json:"planned_load_seconds"`
 	LoadSeconds         float64              `json:"load_seconds"`
@@ -71,18 +73,20 @@ type Result struct {
 }
 
 type Progress struct {
-	Elapsed     time.Duration
-	WallElapsed time.Duration
-	PhaseIndex  int
-	PhaseName   string
-	TargetRate  int
-	Draining    bool
-	Journeys    JourneyMetrics
-	Workload    string
-	Generator   *diagnostics.Resources
-	Merge       *LiveData
-	Workers     []WorkerStatus
-	Telemetry   *telemetry.Snapshot
+	Elapsed       time.Duration
+	WallElapsed   time.Duration
+	PhaseIndex    int
+	PhaseName     string
+	TargetRate    int
+	Draining      bool
+	UserSchedule  *UserSchedule
+	FailurePolicy *FailurePolicy
+	Journeys      JourneyMetrics
+	Workload      string
+	Generator     *diagnostics.Resources
+	Merge         *LiveData
+	Workers       []WorkerStatus
+	Telemetry     *telemetry.Snapshot
 	metrics.Snapshot
 }
 
@@ -105,6 +109,9 @@ type runner struct {
 	nextID        atomic.Int64
 	shard         *Assignment
 	capacity      int
+	usersStarted  atomic.Int64
+	usersFinished atomic.Int64
+	usersStopped  atomic.Int64
 }
 
 func Run(ctx context.Context, c config.Config, opts Options) (Result, error) {
@@ -192,10 +199,13 @@ func Run(ctx context.Context, c config.Config, opts Options) (Result, error) {
 	if p.DiagnosticsEnabled() {
 		sampler = diagnostics.New()
 	}
-	loadCtx, cancelLoad := context.WithCancel(ctx)
+	loadStart := start.Add(p.UserStartupDelay)
+	var loadCtx context.Context
+	var cancelLoad context.CancelFunc
 	if p.LoadDuration > 0 {
-		cancelLoad()
-		loadCtx, cancelLoad = context.WithDeadline(ctx, start.Add(p.LoadDuration))
+		loadCtx, cancelLoad = context.WithDeadline(ctx, loadStart.Add(p.LoadDuration))
+	} else {
+		loadCtx, cancelLoad = context.WithCancel(ctx)
 	}
 	defer cancelLoad()
 	var draining atomic.Bool
@@ -212,7 +222,7 @@ func Run(ctx context.Context, c config.Config, opts Options) (Result, error) {
 					return
 				case <-ticker.C:
 					wallElapsed := time.Since(start)
-					elapsed := wallElapsed
+					elapsed := max(time.Duration(0), wallElapsed-p.UserStartupDelay)
 					if p.LoadDuration > 0 && elapsed > p.LoadDuration {
 						elapsed = p.LoadDuration
 					}
@@ -223,7 +233,7 @@ func Run(ctx context.Context, c config.Config, opts Options) (Result, error) {
 						resources = &value
 					}
 					if opts.OnProgress != nil {
-						progress := Progress{Elapsed: elapsed, WallElapsed: wallElapsed, PhaseIndex: phaseIndex, PhaseName: p.Phases[phaseIndex].Name, TargetRate: p.Phases[phaseIndex].Rate, Draining: draining.Load() || (p.LoadDuration > 0 && wallElapsed >= p.LoadDuration), Snapshot: r.total.Snapshot(elapsed), Journeys: journeyMetrics(r.totalJourneys.Snapshot(elapsed)), Workload: workload, Generator: resources}
+						progress := Progress{Elapsed: elapsed, WallElapsed: wallElapsed, PhaseIndex: phaseIndex, PhaseName: p.Phases[phaseIndex].Name, TargetRate: p.Phases[phaseIndex].Rate, Draining: draining.Load() || (p.LoadDuration > 0 && wallElapsed >= p.UserStartupDelay+p.LoadDuration), UserSchedule: r.userSchedule(wallElapsed), FailurePolicy: r.failurePolicy(), Snapshot: r.total.Snapshot(elapsed), Journeys: journeyMetrics(r.totalJourneys.Snapshot(elapsed)), Workload: workload, Generator: resources}
 						if targetSampler != nil {
 							progress.Telemetry = targetSampler.Live()
 						}
@@ -240,13 +250,13 @@ func Run(ctx context.Context, c config.Config, opts Options) (Result, error) {
 	}
 	stopReason := "duration"
 	if p.Mode == "users" {
-		stopReason = r.runUsers(ctx, loadCtx)
+		stopReason = r.runUsers(ctx, loadCtx, start)
 	} else {
 		r.runRate(ctx, loadCtx, start)
 	}
 	loadEnd := time.Now()
 	draining.Store(true)
-	loadElapsed := loadEnd.Sub(start)
+	loadElapsed := max(time.Duration(0), loadEnd.Sub(loadStart))
 	if p.LoadDuration > 0 && loadElapsed > p.LoadDuration {
 		loadElapsed = p.LoadDuration
 	}
@@ -269,6 +279,8 @@ func Run(ctx context.Context, c config.Config, opts Options) (Result, error) {
 		SchemaVersion: 3, Name: p.Name, URL: p.URL, Method: p.Method, Generator: generator, Assignment: opts.Shard,
 		Mode: p.Mode, Insecure: p.Insecure, ConcurrencyLimit: limit, StartedAt: start.UTC(),
 		Iterations:         p.Iterations,
+		UserSchedule:       r.userSchedule(loadEnd.Sub(start)),
+		FailurePolicy:      r.failurePolicy(),
 		PlannedLoadSeconds: p.LoadDuration.Seconds(), LoadSeconds: loadElapsed.Seconds(),
 		TotalSeconds: time.Since(start).Seconds(), Interrupted: ctx.Err() != nil,
 		Snapshot: r.total.Snapshot(loadElapsed), Phases: make([]PhaseResult, 0, len(p.Phases)),
@@ -281,12 +293,21 @@ func Run(ctx context.Context, c config.Config, opts Options) (Result, error) {
 	if p.HasControlFlow() {
 		result.SchemaVersion = 6
 	}
-	if p.Iterations > 0 {
+	if p.Iterations > 0 || p.HasUserSchedule() || p.HasFailurePolicy() {
 		result.SchemaVersion = 7
+		if p.HasUserSchedule() {
+			result.SchemaVersion = 8
+		}
+		if p.HasFailurePolicy() {
+			result.SchemaVersion = 9
+		}
 		result.StopReason = stopReason
 		if result.Interrupted {
 			result.StopReason = "interrupted"
 		}
+	}
+	if result.UserSchedule != nil {
+		result.UserSchedule.Waiting = false
 	}
 	var offset time.Duration
 	for i, phase := range p.Phases {
@@ -331,15 +352,24 @@ func progressPhase(phases []config.Phase, elapsed time.Duration) int {
 	return len(phases) - 1
 }
 
-func (r *runner) runUsers(ctx, loadCtx context.Context) string {
+func (r *runner) runUsers(ctx, loadCtx context.Context, start time.Time) string {
 	var users sync.WaitGroup
 	deadline, timed := loadCtx.Deadline()
 	for user := range r.plan.VUs {
+		due := start.Add(r.plan.UserStartOffset(user))
+		if !waitUntil(loadCtx, due) || (timed && !time.Now().Before(deadline)) {
+			return "duration"
+		}
 		r.wg.Add(1)
 		users.Add(1)
 		go func() {
 			defer r.wg.Done()
 			defer users.Done()
+			if loadCtx.Err() != nil || (timed && !time.Now().Before(deadline)) {
+				return
+			}
+			r.usersStarted.Add(1)
+			defer r.usersFinished.Add(1)
 			var session *http.Client
 			if r.plan.IsJourney() {
 				session = r.newSession()
@@ -347,14 +377,23 @@ func (r *runner) runUsers(ctx, loadCtx context.Context) string {
 			iteration := int64(0)
 			for loadCtx.Err() == nil && (!timed || time.Now().Before(deadline)) && (r.plan.Iterations == 0 || iteration < int64(r.plan.Iterations)) {
 				iteration++
+				scheduled := time.Now()
+				if iteration == 1 {
+					scheduled = due
+				}
+				var failure string
 				if r.plan.IsJourney() {
 					id := r.nextID.Add(1) - 1
 					selected := r.plan.ScenarioAt(id)
 					r.startJourney(0, selected)
-					r.journey(ctx, time.Now(), 0, selected, id, int64(user+1), iteration, session)
+					failure = r.journey(ctx, scheduled, 0, selected, id, int64(user+1), iteration, session)
 				} else {
 					r.start(0)
-					r.request(ctx, time.Now(), 0)
+					failure = r.request(ctx, scheduled, 0)
+				}
+				if failure != "" && ctx.Err() == nil && r.plan.ErrorAction() == config.StopUser {
+					r.usersStopped.Add(1)
+					return
 				}
 				// A pause separates iterations; it must not delay the final completion.
 				if r.plan.Iterations > 0 && iteration == int64(r.plan.Iterations) {
@@ -374,6 +413,9 @@ func (r *runner) runUsers(ctx, loadCtx context.Context) string {
 	case <-done:
 		if loadCtx.Err() != nil || (timed && !time.Now().Before(deadline)) {
 			return "duration"
+		}
+		if r.usersStopped.Load() > 0 {
+			return "users_stopped"
 		}
 		return "iterations"
 	}
@@ -506,7 +548,7 @@ func (r *runner) dropRange(phase int, n int64, scheduler bool, id int64) {
 	}
 }
 
-func (r *runner) request(ctx context.Context, scheduled time.Time, phase int) {
+func (r *runner) request(ctx context.Context, scheduled time.Time, phase int) string {
 	start := time.Now()
 	s := metrics.Sample{StartDelay: start.Sub(scheduled)}
 	req, err := http.NewRequestWithContext(ctx, r.plan.Method, r.plan.URL, strings.NewReader(r.plan.Body))
@@ -564,6 +606,7 @@ func (r *runner) request(ctx context.Context, scheduled time.Time, phase int) {
 		r.totalJourneys.Complete(s)
 		r.phaseJourneys[phase].Complete(s)
 	}
+	return s.Error
 }
 
 func waitUntil(ctx context.Context, at time.Time) bool {
@@ -589,6 +632,9 @@ func (r *Result) evaluate(p config.Plan) {
 	r.Checks = []Check{
 		{Name: "run_completed", Passed: completed, Actual: boolNumber(completed), Limit: 1, Unit: "boolean"},
 		{Name: "requests_completed", Passed: r.Completed > 0, Actual: float64(r.Completed), Limit: 1, Unit: "requests"},
+	}
+	if r.FailurePolicy != nil && r.FailurePolicy.Action == config.StopUser {
+		r.Checks = append(r.Checks, Check{Name: "users_stopped_on_error", Passed: r.FailurePolicy.UsersStopped == 0, Actual: float64(r.FailurePolicy.UsersStopped), Limit: 0, Unit: "users"})
 	}
 	if p.P95Limit > 0 {
 		r.Checks = append(r.Checks, Check{Name: "p95", Passed: r.Completed > 0 && r.Latency.P95MS <= float64(p.P95Limit)/1e6, Actual: r.Latency.P95MS, Limit: float64(p.P95Limit) / 1e6, Unit: "ms"})
@@ -630,6 +676,12 @@ func (r Result) Summary() string {
 	summary := fmt.Sprintf("%s  %s\n%d completed requests · %.1f started req/s · %.2f%% request errors · %.2f%% arrivals dropped\nRequest latency: p50 %.2f ms · p95 %.2f ms · p99 %.2f ms\n", status, r.Name, r.Completed, r.StartedRPS, r.ErrorPercent, r.arrivalDropPercent(), r.Latency.P50MS, r.Latency.P95MS, r.Latency.P99MS)
 	if r.Iterations > 0 {
 		summary += fmt.Sprintf("%d users × %d iterations/user · stopped: %s · %.3fs load\n", r.ConcurrencyLimit, r.Iterations, r.StopReason, r.LoadSeconds)
+	}
+	if f := r.FailurePolicy; f != nil {
+		summary += fmt.Sprintf("Failure action: %s · %d users stopped on error\n", f.Action, f.UsersStopped)
+	}
+	if s := r.UserSchedule; s != nil {
+		summary += fmt.Sprintf("Startup wait: %.3fs / %.3fs planned · user ramp %.3fs · %d/%d users started · %d finished · stopped: %s\n", s.StartupSeconds, s.PlannedStartupSeconds, s.RampUpSeconds, s.Users.Started, s.Users.Planned, s.Users.Finished, r.StopReason)
 	}
 	if r.Insecure {
 		summary += "TLS verification disabled for workload HTTPS requests (insecure).\n"

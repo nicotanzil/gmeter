@@ -42,7 +42,7 @@ func TestJMXGuidedImportPersistenceAndNoTraffic(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatalf("analyze: %d %s", w.Code, w.Body)
 	}
-	blocked := strings.Replace(jmxSource(t), "startnextloop", "continue", 1)
+	blocked := strings.Replace(jmxSource(t), "startnextloop", "stoptest", 1)
 	w = request(s, "POST", "/api/jmx/convert", jmxBody(t, blocked, true))
 	if w.Code != 409 {
 		t.Fatalf("blocked conversion: %d %s", w.Code, w.Body)

@@ -16,8 +16,8 @@ func (r Result) ValidateFlow(p config.Plan) error {
 	if !p.HasControlFlow() && r.SchemaVersion != 6 {
 		return nil
 	}
-	if (r.SchemaVersion != 6 && r.SchemaVersion != 7) || len(r.Scenarios) != len(p.ScenarioPlans) {
-		return fmt.Errorf("control flows require schema 6 or 7 with matching journeys")
+	if (r.SchemaVersion < 6 || r.SchemaVersion > 9) || len(r.Scenarios) != len(p.ScenarioPlans) {
+		return fmt.Errorf("control flows require schema 6–9 with matching journeys")
 	}
 	var requests, journeys int64
 	for i, s := range r.Scenarios {
@@ -114,6 +114,7 @@ type flowExecution struct {
 	scheduled         time.Time
 	phase, executions int
 	attempted         bool
+	failed            bool
 	visited, bypassed []bool
 }
 
@@ -150,8 +151,12 @@ func (e *flowExecution) sequence(nodes []config.FlowNode) string {
 		e.attempted = true
 		e.visited[n.Request] = true
 		if failure := e.runner.step(e.ctx, e.client, step, e.values, due, e.phase, e.stats.steps[n.Request]); failure != "" {
+			e.failed = true
 			if e.ctx.Err() != nil {
 				return contextCategory(e.ctx)
+			}
+			if e.runner.plan.ErrorAction() == config.ContinueJourney {
+				continue
 			}
 			return "step_failed"
 		}

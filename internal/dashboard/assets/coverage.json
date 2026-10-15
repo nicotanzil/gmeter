@@ -197,7 +197,7 @@
       "name": "Concurrent users and thread lifecycle",
       "group": "Scheduling",
       "status": "partial",
-      "detail": "Fixed users repeat for a duration, a finite number of iterations per user, or whichever limit comes first. No user ramp, delayed start, independent thread groups, or configurable stop-on-error policy.",
+      "detail": "Fixed users repeat for a duration, a finite number of iterations per user, or whichever limit comes first. User ramps and startup delay are supported, with sampled active-user counts. Users can continue, start the next iteration, or stop only the failed user. No independent thread groups or test-wide error stop.",
       "stage": "2 \u00b7 Controls",
       "source": "https://jmeter.apache.org/usermanual/build-web-test-plan.html",
       "evidence": "internal/engine/engine.go"
@@ -297,7 +297,7 @@
       "name": "Flow actions and failure policies",
       "group": "Control flow",
       "status": "partial",
-      "detail": "Failed steps skip the rest; stopping a run cancels work. No programmable break, continue, restart-user, stop-thread, or graceful test actions.",
+      "detail": "Users mode supports continue, next-iteration, and stop-user actions, preserving errors and stopped-user counts. Manual Stop cancels work. No programmable break/continue controllers, restart-user, or graceful/immediate test-wide error actions.",
       "stage": "2 \u00b7 Controls",
       "source": "https://jmeter.apache.org/usermanual/component_reference.html",
       "evidence": "internal/engine/journey.go"
