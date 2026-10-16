@@ -22,6 +22,7 @@
       if (scenario.weight != null && (!Number.isInteger(scenario.weight) || scenario.weight < 1)) throw new Error('Journey weights must be positive whole numbers.');
       stringMap(scenario.variables, 'Journey variables');
       if (scenario.thresholds != null && !object(scenario.thresholds)) throw new Error('Journey thresholds must be an object.');
+      if(scenario.csv!=null){if(!object(scenario.csv)||typeof scenario.csv.content!=='string')throw new Error('CSV needs a source content string.');stringMap(scenario.csv.columns,'CSV column mappings');}
       if (scenario.data != null) {
         if (!Array.isArray(scenario.data)) throw new Error('Journey data must be an array.');
         for (const row of scenario.data) stringMap(row, 'Dataset rows');
@@ -140,11 +141,29 @@
     if (typeof value !== 'string') return [];
     return Array.from(value.matchAll(/\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*(?:\|\s*(?:url|path|json)\s*)?\}\}/g), match => match[1]);
   }
+  // Read only the header for dependency hints. The server parser remains
+  // authoritative for file dialect, row values and all execution validation.
+  function csvVariables(csv) {
+    if(!csv)return [];
+    const text=csv.content.replace(/^\uFEFF/,'').replaceAll('\r\n','\n'),delimiter=csv.delimiter||',';
+    let quoted=false,closed=false,value='',headers=[];
+    for(let i=0;i<text.length;i++){
+      const char=String.fromCodePoint(text.codePointAt(i));if(char.length>1)i++;
+      if(quoted){if(char==='"'){if(text[i+1]==='"'){value+='"';i++;}else{quoted=false;closed=true;}}else value+=char;continue;}
+      if(char===delimiter){headers.push(value);value='';closed=false;continue;}
+      if(char==='\n'){if(!headers.length&&!value&&!closed)continue;headers.push(value);break;}
+      if(closed)return [];
+      if(char==='"'&&!value)quoted=true;else value+=char;
+      if(i===text.length-1)headers.push(value);
+    }
+    return headers.map(h=>Object.hasOwn(csv.columns||{},h)?csv.columns[h]:h).filter(Boolean);
+  }
   function dependencies(config, scenarioIndex) {
     const scenario=config.scenarios?.[scenarioIndex];if(!scenario)return {steps:[],edges:[]};
     const all=flatten(scenario.steps),byStep=new Map(all.map(n=>[n.step,n])),edges=new Map(),infos=[];
     const known=new Map();
     for(const [values,source] of [[config.variables,'Test variable'],[scenario.variables,'Journey variable'],[scenario.data?.[0],'Dataset row']])if(object(values))for(const name of Object.keys(values))known.set(name,{name,source,index:null,indices:[]});
+    for(const name of csvVariables(scenario.csv))if(name)known.set(name,{name,source:'CSV dataset row',index:null,indices:[]});
     for(const name of reserved)known.set(name,{name,source:'Engine value',index:null,indices:[]});
     const guard=(values,c,truth)=>{const result=new Map(values);if((c.operator==='exists'&&truth)||(c.operator==='not_exists'&&!truth))if(!result.has(c.variable))result.set(c.variable,{name:c.variable,source:'Condition guard',index:null,indices:[]});return result;};
     function sequence(nodes,input) {

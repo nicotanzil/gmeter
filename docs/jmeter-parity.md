@@ -51,7 +51,8 @@ Detailed rows link directly to the relevant official manual pages.
 - [x] Opt-in insecure workload HTTPS, explicit result labeling, worker propagation.
 - [x] Searchable in-app comparison with honest availability and official references.
 - [x] Sequential journey/step canvas, assertions, extraction, data and variable controls.
-- [ ] File-backed CSV datasets with deterministic local/fleet allocation and EOF rules.
+- [x] Native embedded CSV import, column mapping, shared/per-user rows and recycle/normal-stop EOF for local users-mode journeys.
+- [ ] CSV rate/fleet allocation, JMX CSV conversion, headerless files, encodings and remaining sharing/EOF options.
 - [ ] Regex, boundary, CSS, XPath, JSONPath and JMESPath extraction and assertions.
 - [ ] Authentication helpers, credentials from environment, redirects, form/multipart uploads.
 - [ ] Custom workload CAs, mutual TLS, proxy/DNS/cache/connection settings.

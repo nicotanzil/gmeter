@@ -16,7 +16,7 @@ func (r Result) ValidateFlow(p config.Plan) error {
 	if !p.HasControlFlow() && r.SchemaVersion != 6 {
 		return nil
 	}
-	if (r.SchemaVersion < 6 || r.SchemaVersion > 10) || len(r.Scenarios) != len(p.ScenarioPlans) {
+	if (r.SchemaVersion < 6 || r.SchemaVersion > 11) || len(r.Scenarios) != len(p.ScenarioPlans) {
 		return fmt.Errorf("control flows require schema 6–10 with matching journeys")
 	}
 	var requests, journeys int64

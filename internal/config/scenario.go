@@ -49,6 +49,7 @@ type Scenario struct {
 	Weight     *int                `json:"weight,omitempty"`
 	Variables  map[string]string   `json:"variables,omitempty"`
 	Data       []map[string]string `json:"data,omitempty"`
+	CSV        *CSV                `json:"csv,omitempty"`
 	Steps      []Step              `json:"steps"`
 	Thresholds JourneyThresholds   `json:"thresholds,omitempty"`
 }
@@ -85,6 +86,7 @@ type ScenarioPlan struct {
 	WeightStart int64
 	Variables   map[string]string
 	Data        []map[string]string
+	CSV         *CSVPlan
 	Steps       []StepPlan
 	Flow        []FlowNode
 	Controls    []ControlPlan
@@ -146,6 +148,18 @@ func (p *Plan) compileScenarios() error {
 			return fmt.Errorf("scenario %q: at most 10000 data rows are supported", s.Name)
 		}
 		sp := ScenarioPlan{Name: s.Name, Weight: int64(weight), WeightStart: p.TotalWeight, Variables: map[string]string{}, Data: s.Data}
+		if s.CSV != nil {
+			if p.Mode != "users" || len(p.Workers) > 0 {
+				return fmt.Errorf("CSV datasets currently require local users mode")
+			}
+			if len(s.Data) > 0 {
+				return fmt.Errorf("scenario %q: choose CSV or inline data, not both", s.Name)
+			}
+			sp.CSV, err = CompileCSV(*s.CSV)
+			if err != nil {
+				return fmt.Errorf("scenario %q: %w", s.Name, err)
+			}
+		}
 		sp.Checks, err = compileJourneyThresholds(s.Thresholds)
 		if err != nil {
 			return fmt.Errorf("scenario %q thresholds: %w", s.Name, err)
@@ -177,6 +191,11 @@ func (p *Plan) compileScenarios() error {
 				if rowIndex == 0 {
 					known[k] = true
 				}
+			}
+		}
+		if sp.CSV != nil {
+			for k := range sp.CSV.Rows[0] {
+				known[k] = true
 			}
 		}
 		compiler := flowCompiler{plan: p, scenario: &sp, base: base, names: map[string]bool{}}

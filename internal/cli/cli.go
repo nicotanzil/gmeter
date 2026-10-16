@@ -18,7 +18,7 @@ import (
 	"gmeter/internal/telemetry"
 )
 
-var Version = "0.4.0-dev"
+var Version = "0.5.0-dev"
 
 const help = `gmeter — HTTP load and stress testing
 
@@ -135,6 +135,7 @@ func validate(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("validate", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	path := fs.String("config", "", "JSON scenario to validate")
+	csv := addCSVFlags(fs)
 	if err := fs.Parse(args); err != nil {
 		if err == flag.ErrHelp {
 			return 0
@@ -147,6 +148,10 @@ func validate(args []string, stdout, stderr io.Writer) int {
 	}
 	c, err := load(*path)
 	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
+	if err := csv.apply(fs, &c); err != nil {
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
@@ -167,6 +172,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	d := config.Defaults()
 	path := fs.String("config", "", "JSON scenario file")
+	csv := addCSVFlags(fs)
 	url := fs.String("url", "", "target HTTP/HTTPS URL")
 	name := fs.String("name", d.Name, "test name")
 	method := fs.String("method", d.Method, "HTTP method")
@@ -314,12 +320,16 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 			}
 		}
 	}
+	if err := csv.apply(fs, &c); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
 	p, err := c.Validate()
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
-	if err := distinctPaths(*path, *jsonPath, *htmlPath); err != nil {
+	if err := distinctPaths(*path, *jsonPath, *htmlPath, *csv.path); err != nil {
 		fmt.Fprintln(stderr, err)
 		return 2
 	}

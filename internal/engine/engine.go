@@ -50,6 +50,7 @@ type Result struct {
 	Iterations          int                  `json:"iterations,omitempty"`
 	StopReason          string               `json:"stop_reason,omitempty"`
 	UserSchedule        *UserSchedule        `json:"user_schedule,omitempty"`
+	Datasets            []DatasetResult      `json:"datasets,omitempty"`
 	FailurePolicy       *FailurePolicy       `json:"failure_policy,omitempty"`
 	StartedAt           time.Time            `json:"started_at"`
 	PlannedLoadSeconds  float64              `json:"planned_load_seconds"`
@@ -80,6 +81,7 @@ type Progress struct {
 	TargetRate    int
 	Draining      bool
 	UserSchedule  *UserSchedule
+	Datasets      []DatasetResult
 	FailurePolicy *FailurePolicy
 	Journeys      JourneyMetrics
 	Workload      string
@@ -112,6 +114,7 @@ type runner struct {
 	usersStarted  atomic.Int64
 	usersFinished atomic.Int64
 	usersStopped  atomic.Int64
+	datasetStats  []datasetStats
 	testStop      *testStop
 }
 
@@ -173,6 +176,7 @@ func Run(ctx context.Context, c config.Config, opts Options) (Result, error) {
 		r.phases = append(r.phases, metrics.New())
 		r.phaseJourneys = append(r.phaseJourneys, metrics.New())
 	}
+	r.datasetStats = make([]datasetStats, len(p.ScenarioPlans))
 	for _, scenario := range p.ScenarioPlans {
 		stats := &scenarioStats{journeys: metrics.New(), skipped: make([]atomic.Int64, len(scenario.Steps)), executed: make([]atomic.Int64, len(scenario.Steps)), skippedCondition: make([]atomic.Int64, len(scenario.Steps)), controls: make([]controlStats, len(scenario.Controls))}
 		for range scenario.Steps {
@@ -236,7 +240,7 @@ func Run(ctx context.Context, c config.Config, opts Options) (Result, error) {
 						resources = &value
 					}
 					if opts.OnProgress != nil {
-						progress := Progress{Elapsed: elapsed, WallElapsed: wallElapsed, PhaseIndex: phaseIndex, PhaseName: p.Phases[phaseIndex].Name, TargetRate: p.Phases[phaseIndex].Rate, Draining: draining.Load() || (p.LoadDuration > 0 && wallElapsed >= p.UserStartupDelay+p.LoadDuration), UserSchedule: r.userSchedule(wallElapsed), FailurePolicy: r.failurePolicy(), Snapshot: r.total.Snapshot(elapsed), Journeys: journeyMetrics(r.totalJourneys.Snapshot(elapsed)), Workload: workload, Generator: resources}
+						progress := Progress{Elapsed: elapsed, WallElapsed: wallElapsed, PhaseIndex: phaseIndex, PhaseName: p.Phases[phaseIndex].Name, TargetRate: p.Phases[phaseIndex].Rate, Draining: draining.Load() || (p.LoadDuration > 0 && wallElapsed >= p.UserStartupDelay+p.LoadDuration), UserSchedule: r.userSchedule(wallElapsed), FailurePolicy: r.failurePolicy(), Datasets: r.datasets(), Snapshot: r.total.Snapshot(elapsed), Journeys: journeyMetrics(r.totalJourneys.Snapshot(elapsed)), Workload: workload, Generator: resources}
 						if targetSampler != nil {
 							progress.Telemetry = targetSampler.Live()
 						}
@@ -287,6 +291,7 @@ func Run(ctx context.Context, c config.Config, opts Options) (Result, error) {
 		Iterations:         p.Iterations,
 		UserSchedule:       r.userSchedule(loadEnd.Sub(start)),
 		FailurePolicy:      r.failurePolicy(),
+		Datasets:           r.datasets(),
 		PlannedLoadSeconds: p.LoadDuration.Seconds(), LoadSeconds: loadElapsed.Seconds(),
 		TotalSeconds: time.Since(start).Seconds(), Interrupted: ctx.Err() != nil,
 		Snapshot: r.total.Snapshot(loadElapsed), Phases: make([]PhaseResult, 0, len(p.Phases)),
@@ -299,7 +304,7 @@ func Run(ctx context.Context, c config.Config, opts Options) (Result, error) {
 	if p.HasControlFlow() {
 		result.SchemaVersion = 6
 	}
-	if p.Iterations > 0 || p.HasUserSchedule() || p.HasFailurePolicy() {
+	if p.Iterations > 0 || p.HasUserSchedule() || p.HasFailurePolicy() || p.HasCSV() {
 		result.SchemaVersion = 7
 		if p.HasUserSchedule() {
 			result.SchemaVersion = 8
@@ -309,6 +314,9 @@ func Run(ctx context.Context, c config.Config, opts Options) (Result, error) {
 		}
 		if p.HasTestStopPolicy() {
 			result.SchemaVersion = 10
+		}
+		if p.HasCSV() {
+			result.SchemaVersion = 11
 		}
 		result.StopReason = stopReason
 		if result.Interrupted {
@@ -383,6 +391,7 @@ func (r *runner) runUsers(ctx, loadCtx context.Context, start time.Time) string 
 			if r.plan.IsJourney() {
 				session = r.newSession()
 			}
+			cursors := make([]int64, len(r.plan.ScenarioPlans))
 			iteration := int64(0)
 			for loadCtx.Err() == nil && (!timed || time.Now().Before(deadline)) && (r.plan.Iterations == 0 || iteration < int64(r.plan.Iterations)) {
 				iteration++
@@ -394,8 +403,15 @@ func (r *runner) runUsers(ctx, loadCtx context.Context, start time.Time) string 
 				if r.plan.IsJourney() {
 					id := r.nextID.Add(1) - 1
 					selected := r.plan.ScenarioAt(id)
+					row, ok := r.datasetRow(id, selected, cursors)
+					if !ok {
+						return
+					}
 					r.startJourney(0, selected)
-					failure = r.journey(ctx, scheduled, 0, selected, id, int64(user+1), iteration, session)
+					if row != nil {
+						r.datasetStats[selected].assigned.Add(1)
+					}
+					failure = r.journey(ctx, scheduled, 0, selected, id, int64(user+1), iteration, session, row)
 				} else {
 					r.start(0)
 					failure = r.request(ctx, scheduled, 0)
@@ -429,6 +445,11 @@ func (r *runner) runUsers(ctx, loadCtx context.Context, start time.Time) string 
 		}
 		if r.usersStopped.Load() > 0 {
 			return "users_stopped"
+		}
+		for _, d := range r.datasets() {
+			if d.UsersExhausted > 0 {
+				return "data_exhausted"
+			}
 		}
 		return "iterations"
 	}
@@ -519,7 +540,7 @@ func (r *runner) runRate(ctx, loadCtx context.Context, start time.Time) {
 					defer r.wg.Done()
 					defer func() { <-capacity }()
 					if r.plan.IsJourney() {
-						r.journey(ctx, scheduled, phase, scenario, id, id+1, 1, r.newSession())
+						r.journey(ctx, scheduled, phase, scenario, id, id+1, 1, r.newSession(), nil)
 					} else {
 						r.request(ctx, scheduled, phase)
 					}
@@ -705,6 +726,9 @@ func (r Result) Summary() string {
 	}
 	if s := r.UserSchedule; s != nil {
 		summary += fmt.Sprintf("Startup wait: %.3fs / %.3fs planned · user ramp %.3fs · %d/%d users started · %d finished · stopped: %s\n", s.StartupSeconds, s.PlannedStartupSeconds, s.RampUpSeconds, s.Users.Started, s.Users.Planned, s.Users.Finished, r.StopReason)
+	}
+	for _, d := range r.Datasets {
+		summary += fmt.Sprintf("CSV %s: %d rows assigned · %d users exhausted · stopped: %s\n", d.Scenario, d.RowsAssigned, d.UsersExhausted, r.StopReason)
 	}
 	if r.Insecure {
 		summary += "TLS verification disabled for workload HTTPS requests (insecure).\n"

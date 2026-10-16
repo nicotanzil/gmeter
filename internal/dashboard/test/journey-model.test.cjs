@@ -109,3 +109,22 @@ test('nested layout has distinct nodes, labeled branch edges, and loop return pa
   assert.ok(layout.nodes.every(n=>n.y+n.height<layout.endY));
   const d=model.dependencies(c,0);assert.ok(d.steps.every(s=>s.missing.length===0));
 });
+
+test('CSV columns supply canvas dependencies and survive edits',()=>{
+  const c={mode:'users',scenarios:[{name:'CSV',csv:{name:'people.csv',content:'Full Name,unused\nalice,x',columns:{'Full Name':'username',unused:''},sharing:'per_user',on_eof:'stop_user'},steps:[{url:'/{{username|path}}'}]}]};
+  assert.deepEqual(model.dependencies(c,0).steps[0].missing,[]);
+  assert.equal(model.dependencies(c,0).steps[0].before.find(v=>v.name==='username').source,'CSV dataset row');
+  const changed=model.mutate(c,{type:'edit-step',index:0,patch:{pause:'1ms'}}).config;
+  assert.deepEqual(changed.scenarios[0].csv,c.scenarios[0].csv);
+  const removed=model.mutate(changed,{type:'edit-journey',patch:{csv:null}}).config;
+  assert.deepEqual(model.dependencies(removed,0).steps[0].missing,['username']);
+  assert.throws(()=>model.shape({scenarios:[{steps:[],csv:{content:123}}]}),/CSV/);
+});
+
+test('native CSV default header mappings also supply dependency hints',()=>{
+  for(const csv of [
+    {content:'\ufeff\r\n"username",item\r\nalice,tea'},
+    {content:'username;item\nalice;tea',delimiter:';'},
+    {content:'"Full\nName",username\nx,alice',columns:{'Full\nName':''}},
+  ])assert.deepEqual(model.dependencies({scenarios:[{csv,steps:[{url:'/{{username|path}}'}]}]},0).steps[0].missing,[]);
+});

@@ -213,7 +213,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodHead {
 			w.Write(body)
 		}
-	case "/app.js", "/style.css", "/theme.js", "/theme.css", "/journey-model.js", "/journey-editor.js", "/journey.css", "/jmx.js", "/jmx.css", "/coverage.json",
+	case "/app.js", "/style.css", "/theme.js", "/theme.css", "/journey-model.js", "/journey-editor.js", "/journey.css", "/jmx.js", "/jmx.css", "/csv.js", "/csv.css", "/shortcuts.js", "/shortcuts.css", "/coverage.json",
 		"/IBMPlexSans-Regular.woff2", "/IBMPlexSans-Medium.woff2", "/IBMPlexSans-SemiBold.woff2", "/IBMPlexSans-Bold.woff2", "/IBMPlexMono-Regular.woff2":
 		body, err := assets.ReadFile("assets" + r.URL.Path)
 		if err != nil {
@@ -263,6 +263,9 @@ func readConfig(w http.ResponseWriter, r *http.Request) (config.Config, config.P
 
 func (s *Server) api(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
+	if s.csvAPI(w, r) {
+		return
+	}
 	if s.jmxAPI(w, r) {
 		return
 	}
@@ -321,7 +324,7 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.Method == "GET" && path == "/api/examples" {
 		list := []SavedScenario{}
-		for _, name := range []string{"smoke", "stress", "post", "journey", "flow", "mix", "distributed", "telemetry", "users-ramp"} {
+		for _, name := range []string{"smoke", "stress", "post", "journey", "flow", "mix", "distributed", "telemetry", "users-ramp", "csv"} {
 			data, _ := examples.Files.ReadFile(name + ".json")
 			c, err := config.Load(bytes.NewReader(data))
 			if err != nil {
@@ -502,8 +505,8 @@ func (s *Server) importRun(w http.ResponseWriter, r *http.Request) {
 	if p.IsJourney() {
 		workload = "journeys"
 	}
-	if result == nil || (result.SchemaVersion < 2 || result.SchemaVersion > 10) || result.Workload != workload || result.URL != run.Config.URL || result.Mode != run.Config.Mode || result.Insecure != run.Config.Insecure || result.StartedAt.IsZero() || result.PlannedLoadSeconds != p.LoadDuration.Seconds() || result.LoadSeconds < 0 || (p.LoadDuration > 0 && result.LoadSeconds > result.PlannedLoadSeconds) || result.TotalSeconds < result.LoadSeconds {
-		fail(w, 400, "Import a completed schema 2–10 run bundle exported with Run + timeline. Configuration and results must match.")
+	if result == nil || (result.SchemaVersion < 2 || result.SchemaVersion > 11) || result.Workload != workload || result.URL != run.Config.URL || result.Mode != run.Config.Mode || result.Insecure != run.Config.Insecure || result.StartedAt.IsZero() || result.PlannedLoadSeconds != p.LoadDuration.Seconds() || result.LoadSeconds < 0 || (p.LoadDuration > 0 && result.LoadSeconds > result.PlannedLoadSeconds) || result.TotalSeconds < result.LoadSeconds {
+		fail(w, 400, "Import a completed schema 2–11 run bundle exported with Run + timeline. Configuration and results must match.")
 		return
 	}
 	if err := result.ValidateIterations(p); err != nil {
@@ -534,6 +537,7 @@ func (s *Server) importRun(w http.ResponseWriter, r *http.Request) {
 	var previousUsers engine.UserCounts
 	var previousStopped int64
 	var previousTestStop bool
+	var previousDatasets []engine.DatasetResult
 	for _, sample := range run.Samples {
 		if sample.ElapsedSeconds < 0 || sample.ElapsedSeconds < previous || sample.ElapsedSeconds > result.TotalSeconds || sample.LoadSeconds < 0 || sample.LoadSeconds > result.LoadSeconds || len(sample.Workers) > config.MaxWorkers {
 			fail(w, 400, "Run bundle timeline is invalid.")
@@ -572,6 +576,19 @@ func (s *Server) importRun(w http.ResponseWriter, r *http.Request) {
 			previousStopped = f.UsersStopped
 			previousTestStop = f.TestStopped
 		}
+
+		if err := engine.ValidateDatasets(p, sample.Datasets, sample.Journeys.Started); err != nil {
+			fail(w, 400, "Run bundle CSV timeline: "+err.Error())
+			return
+		}
+		for i, d := range sample.Datasets {
+			final := result.Datasets[i]
+			if d.RowsAssigned > final.RowsAssigned || d.UsersExhausted > final.UsersExhausted || (len(previousDatasets) > i && (d.RowsAssigned < previousDatasets[i].RowsAssigned || d.UsersExhausted < previousDatasets[i].UsersExhausted)) || (sample.ElapsedSeconds == result.TotalSeconds && d != final) {
+				fail(w, 400, "Run bundle CSV timeline is inconsistent.")
+				return
+			}
+		}
+		previousDatasets = sample.Datasets
 		previous = sample.ElapsedSeconds
 	}
 	s.mu.Lock()
@@ -683,6 +700,7 @@ func (s *Server) start(w http.ResponseWriter, c config.Config, p config.Plan) {
 		workload = "journeys"
 	}
 	run := &Run{ID: id, Name: c.Name, CreatedAt: time.Now().UTC(), Status: "running", Config: c, Workload: workload, PlannedSeconds: p.LoadDuration.Seconds(), Samples: []Sample{{Phase: p.Phases[0].Name, TargetRate: p.Phases[0].Rate}}}
+	run.Samples[0].Datasets = engine.DatasetSettings(p)
 	if p.HasUserSchedule() {
 		run.Samples[0].UserSchedule = &engine.UserSchedule{RampUpSeconds: p.UserRampUp.Seconds(), PlannedStartupSeconds: p.UserStartupDelay.Seconds(), Waiting: p.UserStartupDelay > 0, Users: engine.UserCounts{Planned: int64(p.VUs)}}
 	}
@@ -716,7 +734,7 @@ func (s *Server) execute(ctx context.Context, c config.Config, p config.Plan, id
 	onProgress := func(progress engine.Progress) {
 		s.mu.Lock()
 		defer s.mu.Unlock()
-		appendSample(s.current, Sample{ElapsedSeconds: progress.WallElapsed.Seconds(), LoadSeconds: progress.Elapsed.Seconds(), Phase: progress.PhaseName, TargetRate: progress.TargetRate, Draining: progress.Draining, UserSchedule: progress.UserSchedule, FailurePolicy: progress.FailurePolicy, Requests: progress.Snapshot, Journeys: progress.Journeys, Generator: progress.Generator, Workers: engine.WorkerPoints(progress.Workers, progress.Workload), Telemetry: progress.Telemetry})
+		appendSample(s.current, Sample{ElapsedSeconds: progress.WallElapsed.Seconds(), LoadSeconds: progress.Elapsed.Seconds(), Phase: progress.PhaseName, TargetRate: progress.TargetRate, Draining: progress.Draining, UserSchedule: progress.UserSchedule, FailurePolicy: progress.FailurePolicy, Datasets: progress.Datasets, Requests: progress.Snapshot, Journeys: progress.Journeys, Generator: progress.Generator, Workers: engine.WorkerPoints(progress.Workers, progress.Workload), Telemetry: progress.Telemetry})
 	}
 	var result engine.Result
 	var err error
@@ -762,7 +780,7 @@ func (s *Server) execute(ctx context.Context, c config.Config, p config.Plan, id
 			value := result.Telemetry.Timeline[len(result.Telemetry.Timeline)-1]
 			targetPoint = &value
 		}
-		appendSample(run, Sample{ElapsedSeconds: result.TotalSeconds, LoadSeconds: result.LoadSeconds, Phase: phase.Name, TargetRate: phase.Rate, Draining: true, UserSchedule: result.UserSchedule, FailurePolicy: result.FailurePolicy, Requests: result.Snapshot, Journeys: result.Journeys, Generator: resources, Workers: points, Telemetry: targetPoint})
+		appendSample(run, Sample{ElapsedSeconds: result.TotalSeconds, LoadSeconds: result.LoadSeconds, Phase: phase.Name, TargetRate: phase.Rate, Draining: true, UserSchedule: result.UserSchedule, FailurePolicy: result.FailurePolicy, Datasets: result.Datasets, Requests: result.Snapshot, Journeys: result.Journeys, Generator: resources, Workers: points, Telemetry: targetPoint})
 	}
 	if err := s.store.write("runs", id, run); err != nil {
 		run.SaveError = "Final results could not be saved: " + err.Error() + ". Export this run before restarting."

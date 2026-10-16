@@ -162,6 +162,16 @@ func Load(r io.Reader) (Config, error) {
 }
 
 func (c Config) Validate() (Plan, error) {
+	for _, s := range c.Scenarios {
+		if s.CSV != nil {
+			source, err := json.Marshal(c)
+			if err != nil || len(source) > MaxConfigBytes {
+				return Plan{}, fmt.Errorf("configuration including CSV data exceeds 1 MiB")
+			}
+			break
+		}
+	}
+
 	p := Plan{Config: c}
 	if err := c.validateWorkers(); err != nil {
 		return p, err

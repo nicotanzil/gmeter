@@ -95,7 +95,7 @@ func (r *runner) startJourney(phase, scenario int) {
 	r.scenarioStats[scenario].journeys.Start()
 }
 
-func (r *runner) journey(parent context.Context, scheduled time.Time, phase, selected int, id, user, iteration int64, client *http.Client) string {
+func (r *runner) journey(parent context.Context, scheduled time.Time, phase, selected int, id, user, iteration int64, client *http.Client, row map[string]string) string {
 	start := time.Now()
 	ctx, cancel := context.WithTimeout(parent, r.plan.JourneyLimit)
 	defer cancel()
@@ -106,10 +106,13 @@ func (r *runner) journey(parent context.Context, scheduled time.Time, phase, sel
 		values[k] = v
 	}
 	if len(scenario.Data) > 0 {
-		ordinal := (id/r.plan.TotalWeight)*scenario.Weight + min(max(id%r.plan.TotalWeight-scenario.WeightStart, int64(0)), scenario.Weight)
+		ordinal := r.plan.ScenarioOrdinal(id, selected)
 		for k, v := range scenario.Data[ordinal%int64(len(scenario.Data))] {
 			values[k] = v
 		}
+	}
+	for k, v := range row {
+		values[k] = v
 	}
 	values["user_id"], values["iteration"], values["journey_id"] = strconv.FormatInt(user, 10), strconv.FormatInt(iteration, 10), strconv.FormatInt(id+1, 10)
 	execution := flowExecution{runner: r, ctx: ctx, client: client, scenario: scenario, stats: stats, values: values, scheduled: scheduled, phase: phase, visited: make([]bool, len(scenario.Steps)), bypassed: make([]bool, len(scenario.Steps))}

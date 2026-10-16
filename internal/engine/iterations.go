@@ -8,16 +8,19 @@ import (
 
 // ValidateIterations checks the stopping contract without trusting imported totals.
 func (r Result) ValidateIterations(p config.Plan) error {
+	if err := r.validateDatasets(p); err != nil {
+		return err
+	}
 	if err := r.validateFailurePolicy(p); err != nil {
 		return err
 	}
 	if err := r.validateUserSchedule(p); err != nil {
 		return err
 	}
-	if r.Iterations != p.Iterations || (p.Iterations > 0 && (r.SchemaVersion < 7 || r.SchemaVersion > 10)) || (r.SchemaVersion == 7 && p.Iterations == 0) {
+	if r.Iterations != p.Iterations || (p.Iterations > 0 && (r.SchemaVersion < 7 || r.SchemaVersion > 11)) || (r.SchemaVersion == 7 && p.Iterations == 0) {
 		return fmt.Errorf("iteration settings or schema disagree")
 	}
-	if p.Iterations == 0 && !p.HasUserSchedule() && !p.HasFailurePolicy() {
+	if p.Iterations == 0 && !p.HasUserSchedule() && !p.HasFailurePolicy() && !p.HasCSV() {
 		if r.StopReason != "" {
 			return fmt.Errorf("unexpected iteration stop reason")
 		}
@@ -46,6 +49,10 @@ func (r Result) ValidateIterations(p config.Plan) error {
 	case "interrupted":
 		if !r.Interrupted {
 			return fmt.Errorf("interrupted stop requires an interrupted result")
+		}
+	case "data_exhausted":
+		if !p.HasCSV() || (p.Iterations > 0 && completed >= target) {
+			return fmt.Errorf("CSV exhaustion must precede iteration completion")
 		}
 	case "users_stopped":
 		if r.Interrupted || r.FailurePolicy == nil || r.FailurePolicy.Action != config.StopUser || r.FailurePolicy.UsersStopped == 0 {

@@ -51,6 +51,12 @@ precedence over an unspecified flag.
 | Flag | Default | Meaning |
 | --- | --- | --- |
 | `-config` | empty | Strict JSON configuration file |
+| `-csv` | empty | Embed a CSV file in an existing local users-mode journey; also available to `validate` |
+| `-csv-scenario` | only journey | Select the journey by name; required with multiple journeys |
+| `-csv-columns` | header names | JSON object mapping CSV headers to variables; an empty value ignores a column |
+| `-csv-sharing` | `shared` | `shared` or `per_user`; requires `-csv` |
+| `-csv-eof` | `recycle` | `recycle` or normal `stop_user`; requires `-csv` |
+| `-csv-delimiter` | comma | One CSV delimiter character; requires `-csv` |
 | `-url` | required unless configured | Workload HTTP(S) target |
 | `-name` | `HTTP test` | Report label |
 | `-method` | `GET` | HTTP method for a single-request workload |
@@ -85,7 +91,8 @@ precedence over an unspecified flag.
 | `-out` | timestamped path under `results/` | JSON result path; `''` disables it |
 | `-html` | timestamped path under `results/` | Standalone HTML path; `''` disables it |
 
-Output paths and the input configuration path must be distinct. Explicit report
+Output paths, the input configuration path and the CSV input path must be distinct.
+See [CSV datasets](datasets.md) for file requirements and examples. Explicit report
 paths replace prior files atomically. Result JSON is not a reusable configuration
 or an importable dashboard run bundle.
 

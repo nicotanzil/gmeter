@@ -317,10 +317,10 @@
       "name": "CSV datasets and external files",
       "group": "Data",
       "status": "partial",
-      "detail": "Inline string rows cycle by scheduled ordinal. No file-backed CSV, file cursors, sharing modes, EOF behavior, or file functions.",
+      "detail": "Native UTF-8 CSV import, column mapping, shared/per-user rows and recycle/normal stop-user EOF in local users-mode journeys. Source is embedded in saved scenarios. No rate/fleet CSV allocation, JMX CSV conversion, headerless files, alternate encodings or file functions.",
       "stage": "1 \u00b7 HTTP",
-      "source": "https://jmeter.apache.org/usermanual/functions.html",
-      "evidence": "internal/config/scenario.go"
+      "source": "https://jmeter.apache.org/usermanual/component_reference.html#CSV_Data_Set_Config",
+      "evidence": "internal/config/csv.go; internal/engine/dataset.go; docs/datasets.md"
     },
     {
       "id": "random",

@@ -6,7 +6,7 @@ globalThis.GmeterJourneyEditor = (() => {
   const M = globalThis.GmeterJourneyModel;
   let instance = 0;
   const el = (tag, text, cls) => { const n=document.createElement(tag); if(text!==undefined)n.textContent=text; if(cls)n.className=cls; return n; };
-  function button(text, action, cls='je-button') { const n=el('button',text,cls); n.type='button'; n.addEventListener('click',action); return n; }
+  function button(text, action, cls='je-button') { const n=el('button',text,cls); n.type='button'; n.addEventListener('click',action); const key={Validate:'Enter','Save scenario':'S','Start run':'Shift+Enter',Undo:'Z'}[text];if(key)n.setAttribute('aria-keyshortcuts',`Meta+${key} Control+${key}`);return n; }
   // A value restored before blur may not emit change. Still settle its draft error.
   function watchInput(input,apply,mark) {
     let dirty=false;
@@ -58,8 +58,8 @@ globalThis.GmeterJourneyEditor = (() => {
         if(JSON.stringify(before)===JSON.stringify(result.config)){draft('mutation');return;}
         retain(snapshot(before));config=result.config;si=result.scenario;selected=result.index;preview=null;report=null;
         internal=true;try{options.write(config);}finally{internal=false;}
-        errors.delete('mutation');render(keepInspector);if(!errors.size)message('Draft updated. Validate before running.');
-      }catch(e){if(['edit-step','edit-journey','edit-test'].includes(action.type))draft('mutation',e.message);else message(e.message,true);}
+        errors.delete('mutation');render(keepInspector);if(!errors.size)message('Draft updated. Validate before running.');return true;
+      }catch(e){if(['edit-step','edit-journey','edit-test'].includes(action.type))draft('mutation',e.message);else message(e.message,true);return false;}
     }
     function invoke(action) {if(errors.size){message([...errors.values()].join(' '),true);return;}action?.();}
     async function validate() {
@@ -268,7 +268,16 @@ globalThis.GmeterJourneyEditor = (() => {
       field(container,'Journey timeout',config.journey_timeout||'30s',value=>commit({type:'edit-test',patch:{journey_timeout:value}},true),{key:'journey_timeout',help:'Applies to every journey, including requests, verification, and pauses.'});
       mapEditor(container,'Journey variables',c.variables,values=>patch({variables:values}),'variable');
       mapEditor(container,'Test variables',config.variables,values=>commit({type:'edit-test',patch:{variables:values}},true),'variable');
+      container.append(el('h4','Dataset'));
+      if(c.csv)container.append(el('p',`${c.csv.name||'CSV dataset'} · ${c.csv.sharing==='per_user'?'each user has a sequence':'shared across users'} · ${c.csv.on_eof==='stop_user'?'stop user normally at EOF':'recycle rows'}`,'je-note'));
+      const csvControls=el('div',undefined,'je-inspector-actions'),csvButton=button(c.csv?'Edit CSV dataset':'Import CSV dataset',()=>options.csv?.(M.copy(current()),value=>commit({type:'edit-journey',patch:{csv:value,data:[]}})));
+      csvButton.disabled=config.mode==='rate'||!!config.workers?.length;csvControls.append(csvButton);
+      if(c.csv)csvControls.append(button('Remove CSV dataset',()=>commit({type:'edit-journey',patch:{csv:null}})));
+      container.append(csvControls);
+      if(csvButton.disabled)container.append(el('p','CSV datasets require local Concurrent users mode. Change Test settings to import a file.','je-note'));
+      if(!c.csv) {
       field(container,'Dataset rows · JSON',JSON.stringify(c.data||[],null,2),value=>{const rows=JSON.parse(value);if(!Array.isArray(rows)||rows.some(row=>!row||Array.isArray(row)||typeof row!=='object'||Object.values(row).some(v=>typeof v!=='string')))throw new Error('Data must be an array of objects containing string values.');patch({data:rows});},{key:'data',area:true,rows:5,help:'Example: [{"username":"alice","item":"coffee"}]. Every row needs identical keys. Rows cycle per scheduled journey.'});
+      }
       container.append(el('h4','Journey pass criteria'));
       for(const [key,label,numberField] of [['p95','Journey p95 latency',false],['max_error_percent','Maximum journey errors (%)',true],['max_drop_percent','Maximum missed journeys (%)',true],['min_started_per_second','Minimum started journeys / s',true]])field(container,label,c.thresholds?.[key]??'',value=>{const thresholds={...current().thresholds,[key]:numberField?number(value,label,true,false,0,key.startsWith('max_')?100:Infinity):value};patch({thresholds});},{key:`threshold-${key}`,number:numberField,help:'Blank disables this criterion.'});
       container.append(el('p','Dataset values override journey variables; extractions override them after each successful response. Engine-reserved values cannot be replaced.','je-note'));
@@ -297,6 +306,9 @@ globalThis.GmeterJourneyEditor = (() => {
     const onFullscreen=()=>{if(root.isConnected){autoFit=true;requestAnimationFrame(fit);}};
     document.addEventListener('fullscreenchange',onFullscreen);
     return {
+      validate,
+      undo,
+      canUndo:()=>!readonly&&history.length>0,
       destroy() {observer.disconnect();cancelAnimationFrame(pendingFrame);document.removeEventListener('fullscreenchange',onFullscreen);},
       load(c,replaceDraft=false) {
         if(internal)return;

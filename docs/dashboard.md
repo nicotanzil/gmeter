@@ -29,6 +29,37 @@ backup, and recovery, and [security](../SECURITY.md) for trust boundaries.
 Use **Theme** in the workspace sidebar to follow the system appearance or select
 Light or Dark. The choice is saved in this browser.
 
+## Keyboard shortcuts
+
+Choose **Keyboard shortcuts** in the sidebar (on small screens, open **More**),
+or press **?** outside a text field. The reference shows keys for your platform.
+
+| Keys | Action |
+| --- | --- |
+| G, then B | Build |
+| G, then L | Live results |
+| G, then H | Run history |
+| G, then G | User guide |
+| G, then C | Feature coverage |
+| ⌘/Ctrl + Enter | Validate the current builder configuration without workload traffic |
+| ⌘/Ctrl + S | Save/update the current scenario |
+| ⌘/Ctrl + Shift + Enter | Start a run using the current builder settings |
+| ⌘/Ctrl + Z | Undo a canvas edit when focus is outside a text field |
+| Escape | Close a dialog or cancel a pending G sequence |
+
+Release G before pressing the destination key within two seconds. A brief hint
+shows the destinations. Navigation preserves the editor and focuses the new
+view's heading. Builder actions are available only in Build and use the same
+validation and active-run checks as their buttons. A valid inspector field is
+settled before save/validate/start, just as when clicking the action.
+
+Text fields, selects, editable content and open dialogs suppress character-key
+shortcuts. Text undo and other standard editing/browser shortcuts stay native.
+IME composition and held-key repeats do not dispatch app actions. In the
+reference, turn off **Enable G sequences and ?** to disable character shortcuts;
+this preference is saved in the browser. Modifier shortcuts remain available.
+The character-key opt-out follows the [W3C guidance](https://www.w3.org/WAI/WCAG22/Understanding/character-key-shortcuts.html).
+
 ## Build and reuse tests
 
 The form edits target, model, stopping condition, duration, iterations per user,
@@ -226,7 +257,7 @@ regression verdict.
 | Run + timeline | Configuration, final results, retained timeline | Yes |
 
 Use **Import JSON** or **Import run** for run bundles. Imports require final
-schema 2–10 results, validate configuration, final count equations, and telemetry
+schema 2–11 results, validate configuration, final count equations, and telemetry
 observation bounds/accounting when present, have a 16 MiB
 limit, and assign a new ID. They send no traffic. Imported runs are marked
 **IMPORTED**; their original traffic has not been independently verified.
@@ -371,3 +402,7 @@ records an interruption; it does not erase the error stop.
 
 New policies use schema 10 bundles, with a monotonic `test_stopped` flag and a
 mandatory matching check. Older policies and schemas retain their formats.
+
+## Import CSV journey data
+
+Select **Concurrent users** in Test settings, then open **Journey settings & data → Import CSV dataset** on the canvas. Review column mappings and sample rows before applying. Choose shared or per-user rows, with recycling or normal user completion at EOF. The dialog preserves the current test until **Use dataset**; Undo restores a replaced inline dataset. Saved scenarios carry their data to another workspace. Live/final results show row assignments and users finished at EOF. See [CSV datasets](datasets.md) for complete rules and limits.

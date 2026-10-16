@@ -162,7 +162,7 @@ Telemetry observations do not establish per-worker target coverage.
 Configured telemetry produces **schema 5** results for sequential tests, locally
 or with workers. Branch/loop flows use **schema 6**, preserving telemetry.
 Sequential runs without telemetry retain local schema 3 or distributed schema 4. The dashboard
-accepts schemas 2–10 and validates observation shape, numeric bounds, time windows,
+accepts schemas 2–11 and validates observation shape, numeric bounds, time windows,
 configuration, and accounting without contacting the exporter. Imports cannot
 verify the original measurements. JSON, HTML, workspace persistence, and run
 bundles preserve final telemetry summaries. Comparison flags differing telemetry

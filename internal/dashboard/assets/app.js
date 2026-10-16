@@ -9,7 +9,7 @@ const fmt = (value, digits = 1) => Number(value || 0).toLocaleString(undefined, 
 const count = value => Number(value || 0).toLocaleString();
 const errorActions = {next_iteration:'Start next iteration',continue:'Continue journey',stop_user:'Stop this user',stop_test:'Stop test gracefully',stop_test_now:'Stop test immediately'};
 const errorHelp = {next_iteration:'Skip the remaining journey steps, then start the next iteration.',continue:'Attempt later steps and loop iterations. Failed requests and journeys still count as errors. Failed verification publishes no extracted values.',stop_user:'Skip the remaining journey and stop this user’s future iterations. Other users continue. Any user stopped on error fails the run.',stop_test:'End the failing journey and stop new users and iterations. Other admitted journeys finish under their deadlines. The test fails.',stop_test_now:'Cancel active requests, journey pauses, and pending user starts. Keep partial results and fail the test.'};
-const stopReasons = {iterations:'iterations completed',duration:'duration reached',interrupted:'interrupted',users_stopped:'users stopped after errors',test_stopped:'test stopped gracefully after error',test_stopped_now:'test stopped immediately after error'};
+const stopReasons = {iterations:'iterations completed',duration:'duration reached',interrupted:'interrupted',users_stopped:'users stopped after errors',test_stopped:'test stopped gracefully after error',test_stopped_now:'test stopped immediately after error',data_exhausted:'CSV data exhausted'};
 const active = run => run && ['running', 'stopping'].includes(run.status);
 const node = (tag, text, className) => { const e = document.createElement(tag); if (text !== undefined) e.textContent = text; if (className) e.className = className; return e; };
 const builderGrid = $('builder-settings'), editorPanel = builderGrid.querySelector('.editor-panel');
@@ -35,18 +35,16 @@ async function api(path, method = 'GET', body) {
 
 function notice(message, bad = false) { $('notice').textContent = message; $('notice').className = bad ? 'bad' : ''; $('notice').hidden = false; }
 function validateMessage(message, kind = '') { $('validation').textContent = message; $('validation').className = `validation ${kind}`; }
+const csvImport = GmeterCSV.create({api});
 const journeyEditor = GmeterJourneyEditor.create($('journey-canvas'), {
   read: () => { if (builderFormError || telemetryFormError) throw new Error(builderFormError || telemetryFormError); return readEditor(true); },
   write: c => { $('config-json').value = JSON.stringify(c, null, 2); syncForm(c); validateMessage('Journey changed. Validate before running.'); },
   onDraftError: error => { journeyFormError = error; },
   settings: () => showBuilderTab('settings'),
+  csv: (scenario, apply) => csvImport.open(scenario, apply),
   validate: validateEditor,
   save: () => saveScenario(false),
-  start: () => {
-    if (activeID) { notice('A run is already active. Stop it or wait for it to finish.', true); return; }
-    if (!$('config-form').checkValidity()) { showBuilderTab('settings'); $('config-form').reportValidity(); return; }
-    $('config-form').requestSubmit();
-  }
+  start: startBuilderRun
 });
 const runJourneyEditor = GmeterJourneyEditor.create($('run-journey-canvas'), {readonly:true});
 const jmxImport = GmeterJMX.create($('view-jmx'), {
@@ -87,6 +85,34 @@ function showView(next) {
 for (const e of document.querySelectorAll('[data-view]')) e.addEventListener('click', () => showView(e.dataset.view));
 document.addEventListener('click', e => { if (!$('nav-more').contains(e.target)) $('nav-more').open = false; });
 document.addEventListener('keydown', e => { if (e.key === 'Escape') $('nav-more').open = false; });
+function startBuilderRun() {
+  if (activeID || $('start').disabled) { notice('A run is already active or starting. Stop it or wait for it to finish.', true); return; }
+  if (!$('config-form').checkValidity()) { showBuilderTab('settings'); $('config-form').reportValidity(); return; }
+  $('config-form').requestSubmit();
+}
+async function settleShortcutInput(action,restore=true) {
+  const input=document.activeElement;
+  if(input?.matches('input,select,textarea,[contenteditable]'))input.blur();
+  try { await action(); }
+  finally { if(restore&&view==='build'&&input?.isConnected&&input.getClientRects().length)input.focus({preventScroll:true}); }
+}
+GmeterShortcuts.create({
+  allowed: action => {
+    if(['validate','save','start','undo'].includes(action))return view==='build'&&(action!=='start'||!activeID&&!$('start').disabled)&&(action!=='undo'||!$('journey-canvas').hidden&&journeyEditor.canUndo());
+    return true;
+  },
+  perform: action => {
+    if(action==='validate')return settleShortcutInput(()=>$('journey-canvas').hidden?validateEditor().catch(e=>validateMessage(e.message,'bad')):journeyEditor.validate());
+    if(action==='save')return settleShortcutInput(()=>saveScenario());
+    if(action==='start')return settleShortcutInput(startBuilderRun,false);
+    if(action==='undo'){journeyEditor.undo();return;}
+    showView(action);
+    const heading=$('view-'+action).querySelector('h1,h2');
+    if(heading){heading.tabIndex=-1;heading.focus({preventScroll:true});}
+  },
+  onError: error=>notice(error.message,true)
+});
+
 
 function readEditor(ignoreTelemetryError = false) {
   if (builderFormError&&!ignoreTelemetryError) throw new Error(builderFormError);
@@ -295,6 +321,7 @@ function updateInlineHints() {
 }
 function updatePreview(c) {
   $('phase-summary').replaceChildren(...(c.stages || []).map(s => node('span', `${s.name || 'Phase'} · ${s.rate}/s · ${s.duration}`, 'phase-chip')));
+  const csvEOF = c.scenarios?.some(s=>s.csv?.on_eof==='stop_user');
   const journey = !!c.scenarios?.length, unit = journey ? 'journeys' : 'requests';
   const seconds = c.stages?.length ? c.stages.reduce((sum,p) => { const d=durationSeconds(p.duration); return sum === null || d === null ? null : sum+d; }, 0) : durationSeconds(c.duration);
   const planned = c.stages?.length ? c.stages.reduce((sum,p) => { const d=durationSeconds(p.duration); return sum === null || d === null ? null : sum+Math.ceil(d*p.rate); },0) : seconds === null ? null : Math.ceil(seconds*c.rate);
@@ -302,7 +329,7 @@ function updatePreview(c) {
   $('plan-compact').textContent = `${journey ? c.scenarios.length + ' ' + (c.scenarios.length === 1 ? 'journey' : 'journeys') : c.method || 'GET'} · ${c.mode === 'rate' ? (c.stages?.length ? c.stages.length + ' phases' : c.rate + ' ' + unit + '/s') : c.vus + ' users'} · ${stopping}${planned !== null && c.mode === 'rate' ? ' · ' + count(planned) + ' planned' : ''}`;
   const rows = [c.scenarios?.length ? `${c.scenarios.length} journey scenario(s)` : `${c.method || 'GET'} request`, c.url || 'Choose a target URL',
     c.mode === 'rate' ? `${c.stages?.length ? c.stages.length+' phases' : c.rate+' '+unit+'/s'} · cap ${c.max_in_flight} concurrent ${unit}` : `${c.vus} concurrent users`,
-    c.iterations > 0 ? `${count(c.vus * c.iterations)} ${c.duration ? 'maximum' : 'planned'} ${unit} · ${stopping}` : seconds === null ? 'Enter a valid load duration' : `${fmt(seconds)}s load window`,
+    c.iterations > 0 ? `${count(c.vus * c.iterations)} ${c.duration || csvEOF ? 'maximum' : 'planned'} ${unit} · ${stopping}` : seconds === null ? 'Enter a valid load duration' : `${fmt(seconds)}s load window`,
     c.mode === 'rate' && planned !== null ? `${count(planned)} planned ${unit}; some may be missed` : 'Throughput depends on response time',
     c.workers?.length ? `Run on ${c.workers.length} workers` : 'Run on this machine'];
   if (c.mode === 'users' && (c.ramp_up || c.startup_delay)) {
@@ -311,6 +338,7 @@ function updatePreview(c) {
     if (seconds !== null && ramp*(c.vus-1)/c.vus >= seconds) rows.push('The duration limit closes before every user can start.');
   }
   if (c.mode === 'users') rows.push('After a failed request: ' + (errorActions[c.on_error || 'next_iteration'] || c.on_error));
+  for(const s of c.scenarios||[])if(s.csv)rows.push(`CSV ${s.name}: ${s.csv.name||'dataset'} · ${s.csv.sharing==='per_user'?'per user':'shared'} · ${s.csv.on_eof==='stop_user'?'users finish normally at EOF; may end before limits':'recycle rows'}`);
   if (c.insecure) rows.push('HTTPS verification disabled');
   $('plan-preview').replaceChildren(...rows.map((text,i) => node('p', text, i===1 ? 'preview-target' : '')));
   const checks = node('div', undefined, 'preview-checks'), title = node('h3', 'Pass criteria');
@@ -495,7 +523,7 @@ function renderRun() {
   $('elapsed').textContent = `${fmt(latest.load_seconds)} / ${fmt(run.planned_seconds)}s load${latest.elapsed_seconds > latest.load_seconds + .05 ? ` · ${fmt(latest.elapsed_seconds - latest.load_seconds)}s ${run.config.workers?.length||run.config.telemetry ? 'drain + collection' : 'drain'}` : ''}`;
   if (run.config.iterations > 0) {
     const target = run.config.vus * run.config.iterations;
-    $('elapsed').textContent = `${count(traffic.completed)} / ${count(target)} ${run.workload} · ${fmt(latest.load_seconds)}s load${run.planned_seconds ? ' · ' + fmt(run.planned_seconds) + 's limit' : ''}${run.result?.stop_reason ? ' · Stopped: ' + (stopReasons[run.result.stop_reason] || run.result.stop_reason) : ''}`;
+    $('elapsed').textContent = `${count(traffic.completed)} / ${count(target)} ${run.config.scenarios?.some(s=>s.csv?.on_eof==='stop_user')?'maximum ':''}${run.workload} · ${fmt(latest.load_seconds)}s load${run.planned_seconds ? ' · ' + fmt(run.planned_seconds) + 's limit' : ''}${run.result?.stop_reason ? ' · Stopped: ' + (stopReasons[run.result.stop_reason] || run.result.stop_reason) : ''}`;
     $('progress').max = target; $('progress').value = traffic.completed || 0;
   } else { $('progress').max = run.planned_seconds || 1; $('progress').value = latest.load_seconds || 0; }
   $('progress').setAttribute('aria-label', run.config.iterations > 0 ? `Completed ${run.workload} toward the iteration limit` : 'Admission window progress');
@@ -504,6 +532,9 @@ function renderRun() {
     const load = run.config.iterations > 0 ? $('elapsed').textContent : `${fmt(latest.load_seconds)} / ${fmt(run.planned_seconds)}s load${run.result?.stop_reason ? ' · Stopped: ' + (stopReasons[run.result.stop_reason] || run.result.stop_reason) : ''}`;
     $('elapsed').textContent = `${schedule.waiting && active(run) ? 'Waiting: ' : 'Startup: '}${fmt(schedule.startup_seconds)} / ${fmt(schedule.planned_startup_seconds)}s · ${load}${remainder > .05 ? ' · ' + fmt(remainder) + 's drain / collection' : ''} · ${count(schedule.users.active)} active users · ${count(schedule.users.started)} / ${count(schedule.users.planned)} started`;
   }
+  const datasets = run.result?.datasets || latest.datasets || [];
+  $('csv-status').hidden = !datasets.length;
+  $('csv-status').textContent = datasets.map(d=>`${d.scenario} · ${d.name}: ${count(d.rows_assigned)} rows assigned · ${count(d.users_exhausted)} users finished at EOF`).join(' / ');
   const failure = run.result?.failure_policy || latest.failure_policy;
   if (failure) {
     $('elapsed').textContent += ' · ' + errorActions[failure.action];
@@ -617,6 +648,8 @@ function renderResults(result) {
   $('checks').replaceChildren(...result.checks.map(c => node('span', `${c.passed ? '✓' : '×'} ${c.name.replaceAll('_', ' ')} · ${fmt(c.actual, 2)} / ${fmt(c.limit, 2)} ${c.unit}`, `check-item${c.passed ? '' : ' bad'}`)));
   $('scenario-results').replaceChildren(...(result.scenarios || []).map(s => {
     const section = node('div', undefined, 'step-section');
+    const dataset = result.datasets?.find(d=>d.scenario===s.name);
+    if(dataset)section.append(node('p',`CSV: ${dataset.name} · ${count(dataset.rows)} source rows · ${dataset.sharing==='shared'?'shared':'per user'} · ${dataset.on_eof==='recycle'?'recycles':'stops user at EOF'} · ${count(dataset.rows_assigned)} assigned · ${count(dataset.users_exhausted)} users exhausted`,'helper'));
     section.append(node('h3', s.name), node('p', `${count(s.journeys.completed)} journeys · ${fmt(s.journeys.error_percent, 2)}% errors · ${s.journeys.latency.samples ? fmt(s.journeys.latency.p95_ms) + ' ms p95' : 'no latency samples'} · ${s.checks?.length ? (s.passed ? 'checks passed' : 'checks failed') : 'no scenario checks'}`));
     const rows = s.steps.map(step => [step.name, step.method, count(step.completed), count(step.skipped) + (step.skipped_condition ? ` (${count(step.skipped_condition)} conditional)` : ''), step.completed ? fmt(step.error_percent, 2) + '%' : '—', step.latency.samples ? fmt(step.latency.p95_ms) + ' ms' : '—']);
     const wrap = node('div', undefined, 'table-wrap'); wrap.append(makeTable(['Step', 'Method', 'Attempts', 'Skipped journeys', 'Errors', 'p95'], rows)); section.append(wrap);

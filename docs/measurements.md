@@ -220,3 +220,7 @@ this feature.
 Bundle import requires matching policy, schema, reason and mandatory check;
 rejects passing error stops; checks monotonic stop flags and a matching final
 observation; and requires failed work before a stop flag can become true.
+
+## CSV dataset consumption
+
+Schema 11 adds one dataset observation per CSV scenario. `rows_assigned` counts admitted journeys, including failed journeys, and `users_exhausted` counts users that ended normally before their next journey because no row was available. Request loops reuse the assigned row. EOF probes create no request/journey sample or dropped arrival. `data_exhausted` can pass checks while completing fewer iterations than the upper limit; see [CSV semantics](datasets.md#results-and-limits). Schedule and failure metadata remain present when configured. Older runs retain their existing schemas.

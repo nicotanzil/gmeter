@@ -51,6 +51,8 @@ Load **Branches and loops** to explore a nested example. [Flow syntax and limits
 
 ![Executable branches and loops on the journey canvas](docs/images/journey-flow.png)
 
+For prepared input, import a [CSV dataset](docs/datasets.md) under **Journey settings & data**. Map columns to variables, choose shared or per-user rows, and recycle or finish users normally at EOF. This increment supports local users-mode journeys.
+
 Coming from JMeter? Choose **Import JMeter JMX** in the builder. Review component
 compatibility, supply properties, preview the mapped journey, then save a native
 scenario or a separate migration draft. This first converter accepts a limited

@@ -61,9 +61,9 @@ of superiority over JMeter is justified until milestone 5 is complete.
 
 Read this file, README.md, docs/scenarios.md, docs/dashboard.md,
 docs/diagnostics.md, docs/workers.md, and docs/telemetry.md first. Continue
-the bundled JMeter parity program in docs/jmeter-parity.md. The next slice is
-CSV datasets, then
-richer HTTP workflows. The journey canvas now edits
+the bundled JMeter parity program in docs/jmeter-parity.md. The next slice is guided JMX CSV attachment and mapping, then
+richer HTTP workflows. Native local users-mode CSV datasets are implemented;
+rate/fleet allocation remains separate. The journey canvas now edits
 requests, nested branches and loops, checks, extractions, data, variables, and
 per-journey criteria. Foreach, once-only, switch, shared fragments, and richer
 failure actions remain in the execution-controls backlog.
@@ -95,7 +95,8 @@ journey arrivals and HTTP request attempts have separate counts and rates.
 - [x] Finite JMX Thread Group loops with optional scheduler; no implicit time cap.
 - [x] Schema 7 stopping contract, native bundle round trips and consistency checks.
 - [x] Next increment: user ramps and startup delay.
-- [ ] Following increments: CSV data and richer HTTP workflows.
+- [x] Native local users-mode CSV data.
+- [ ] Following increments: JMX CSV migration and richer HTTP workflows.
 
 Validation: `make check build` passed, including vet, race tests, UI tests, and
 both binaries. Independent local-target tests cover exact per-user counts,
@@ -119,7 +120,7 @@ ignored `work/iterations-qa/`.
 - [x] Builder, canvas guidance, live results, CLI and standalone HTML.
 - [x] Schema 10 bundles with policy/reason/check/timeline validation.
 - [x] JMX Stop Test/Stop Test Now mappings with explicit native drain differences.
-- [ ] Next: CSV datasets and sharing/end-of-file semantics.
+- [x] Native local users-mode CSV datasets and sharing/end-of-file semantics.
 
 Focused checks cover active-peer drain/cancellation, journey pauses, future user
 starts, frozen progress, manual interruption during drain, disabled thresholds,
@@ -146,7 +147,7 @@ QA images in ignored `work/test-stop-qa/`. Checkpoint before this increment:
 - [x] Mandatory stopped-user check, schema 9 metadata and bundle validation.
 - [x] Builder controls, preview, journey guidance, live results, CLI and HTML.
 - [x] Explicit JMX Continue/Start Next Thread Loop/Stop Thread mappings.
-- [ ] Next: CSV datasets.
+- [x] Native local users-mode CSV datasets.
 
 Focused execution tests cover nested loops, deadlines, safety limits, missing
 values after failed verification, peer isolation, cancellation, JMX conversion,
@@ -168,7 +169,7 @@ is claimed.
 - [x] Builder controls, schedule preview/chart, CLI flags, starter and guides.
 - [x] JMX default ramp/scheduler delay conversion with explicit millisecond rounding.
 - [x] Schema 8 schedule contract, native bundle import validation and old schemas.
-- [ ] Next increment: CSV datasets.
+- [x] Next increment: native CSV datasets for local users-mode journeys.
 
 Validation: `make check build` passed vet, all race tests, UI tests and both
 binaries. Follow-up dashboard/starter and duration-only tests passed after final
@@ -582,3 +583,57 @@ Validated against the current development checkout:
 Documentation does not certify enterprise readiness. Enforced CI, independent
 benchmark/security review, release provenance/support policies, and a maintainer
 license decision remain adoption gates. No release, tag, or publication was changed.
+
+
+### Native CSV datasets (15 October 2026)
+
+- [x] Bounded UTF-8/quoted CSV parser shared by preview, validation, CLI and execution.
+- [x] Portable source, explicit column mapping and ignored columns; no implicit filesystem paths.
+- [x] Shared/per-user per-scenario cursors, recycling and normal stop-user EOF.
+- [x] Canvas import/edit/remove with undo, source preview and contextual guidance.
+- [x] CLI file flags, schema 11 consumption counters, reports and bundle persistence/validation.
+- [ ] Next: guided JMX CSV source attachment and mapping with explicit compatibility review.
+- [ ] Separate extension: CSV allocation in rate/distributed mode and remaining JMeter CSV options.
+
+Native CSV EOF ends a user before another journey is admitted, without inventing
+an HTTP error, drop or latency sample. Failure actions consume their current row.
+Pending ramp starts continue after another user reaches EOF. Saved source includes
+ignored columns; exported result aggregates contain no cell values.
+
+
+CSV validation on 16 October 2026:
+
+- `make check build` passed JavaScript syntax/model tests, vet, all race tests and both binaries.
+- Parser fixtures cover BOM/UTF-8, quotes, multiline fields, delimiters, mapping collisions and size/row/column/cell bounds.
+- Engine fixtures cover shared/per-user recycling and EOF, weighted scenarios, stable loop rows, failure policies, ramp continuation, duration and manual cancellation.
+- Schema 11 bundles roundtrip through persistence/import; mismatched settings, counts and timelines are rejected without traffic. CLI validation and JSON/HTML output passed.
+- Browser review loaded a synthetic file, rejected duplicate mappings, preserved cancel/undo and reopened saved source after restart. Per-user EOF completed 9 journeys; shared EOF completed 3, each with 3 users and 3 source rows, with zero errors or missed arrivals.
+- Light/dark dialogs and a 320px viewport were inspected. No horizontal page/dialog overflow was observed; final browser warning/error logs were empty. Screenshots are in ignored `work/csv-qa/`.
+- The final primary-button styling passed syntax/build checks and browser review. Local Markdown file links (176) resolve.
+- Review dashboard: localhost:53240; isolated local demo: localhost:53241. No external targets were exercised. CSV source is embedded in saved configurations; no JMX CSV compatibility claim is made.
+
+
+### Keyboard shortcuts (16 October 2026)
+
+- [x] G then B/L/H/G/C navigates Build, Live, History, Guide and Coverage, with a two-second hint and heading focus.
+- [x] Command/Control + Enter validates, + S saves, + Shift + Enter starts through the existing builder checks; + Z undoes canvas edits outside text fields.
+- [x] Question-mark reference, button hints and modifier-key accessibility metadata; sidebar/guide/mobile More entry points.
+- [x] Character-key opt-out persisted in this browser; typing, native selects, dialogs, IME composition and held-key repeats do not trigger character commands.
+- [x] Inspector drafts settle like a button click before save, validate or start. Canvas shortcuts preserve text undo.
+
+Validation: 23 UI/model tests, vet, the full race suite with sequential packages
+(`GOFLAGS=-p=1 make check build`), and both binaries passed. The initial parallel
+run missed short deadlines in two existing distributed fixtures; both passed in
+isolation and in the sequential full run, without changing those tests or engine
+behavior. Timing-fixture resilience remains a separate follow-up.
+
+Browser review verified character-key persistence across reload, blocked dialog
+navigation, ordinary typing, heading focus, save from an unfinished inspector
+field, validation, canvas undo, and a keyboard-started local run with 3 successful
+journeys and no errors/misses. Light/dark references and a 320px viewport were
+inspected; no page/dialog horizontal overflow was observed. Mobile More closes
+before the dialog and receives focus after Escape. Final browser warning/error
+logs were empty. Later focus/Shift-key refinements passed syntax/build checks,
+controller tests and the relevant browser check. Evidence is in ignored
+`work/shortcuts-qa/`; the review dashboard is at localhost:53340 with its local
+demo at localhost:53341. No commit or publication was performed for this increment.

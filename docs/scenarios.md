@@ -33,6 +33,7 @@ make build
 | `weight` | Positive integer, default 1; share of scheduled journey arrivals |
 | `variables` | Scenario variables overriding top-level `variables` |
 | `data` | Inline rows of string values; each row must have identical keys |
+| `csv` | Embedded CSV source, column mapping, sharing and EOF policy; [local users-mode guide](datasets.md) |
 | `steps` | Ordered flow with up to 50 request/control nodes, including nested children |
 | `thresholds` | Acceptance limits for this scenario's journeys |
 
@@ -50,7 +51,7 @@ variables, resolved in this order:
 
 1. Top-level `variables`.
 2. Scenario `variables`.
-3. The selected `data` row.
+3. The selected inline `data` or CSV row.
 4. Reserved engine values: `user_id`, `iteration`, and `journey_id`.
 5. Extractions from successful steps, available to later steps and same-step assertions.
 
@@ -336,7 +337,7 @@ before any traffic. Metrics storage scales with static nodes, not iterations.
 Flows with any branch or loop use **result schema 6**, locally, on workers,
 and with telemetry. Sequential tests retain schemas 3/4/5 unless finite iterations (7), schedules
 (8), or per-user failure actions (9), or test-wide failure actions (10) select a newer schema. Earlier configuration
-files continue to work, and dashboard imports accept schemas 2–10. Run current
+files continue to work, and dashboard imports accept schemas 2–11. Run current
 binaries on all workers; older binaries reject the new configuration fields.
 
 For each request node in schema 6:

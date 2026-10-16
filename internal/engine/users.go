@@ -60,8 +60,8 @@ func (r Result) validateUserSchedule(p config.Plan) error {
 		}
 		return nil
 	}
-	if (r.SchemaVersion < 8 || r.SchemaVersion > 10) || r.UserSchedule == nil || r.ConcurrencyLimit != p.VUs {
-		return fmt.Errorf("scheduled users require schema 8–10 and matching user settings")
+	if (r.SchemaVersion < 8 || r.SchemaVersion > 11) || r.UserSchedule == nil || r.ConcurrencyLimit != p.VUs {
+		return fmt.Errorf("scheduled users require schema 8–11 and matching user settings")
 	}
 	if err := r.UserSchedule.Validate(p, r.TotalSeconds, r.LoadSeconds, true); err != nil {
 		return err

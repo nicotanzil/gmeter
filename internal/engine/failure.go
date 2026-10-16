@@ -78,7 +78,7 @@ func (f FailurePolicy) Validate(c config.Config, failed int64) error {
 
 func (r Result) validateFailurePolicy(p config.Plan) error {
 	if !p.HasFailurePolicy() {
-		if r.FailurePolicy != nil || r.SchemaVersion >= 9 {
+		if r.FailurePolicy != nil || (r.SchemaVersion >= 9 && !p.HasCSV()) {
 			return fmt.Errorf("unexpected failure policy")
 		}
 		return nil
@@ -86,6 +86,9 @@ func (r Result) validateFailurePolicy(p config.Plan) error {
 	wantSchema := 9
 	if p.HasTestStopPolicy() {
 		wantSchema = 10
+	}
+	if p.HasCSV() {
+		wantSchema = 11
 	}
 	if r.SchemaVersion != wantSchema || r.FailurePolicy == nil {
 		return fmt.Errorf("failure action requires schema %d", wantSchema)

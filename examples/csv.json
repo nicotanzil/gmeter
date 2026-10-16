@@ -1,0 +1,18 @@
+{
+  "name": "CSV data: shared rows and normal EOF",
+  "url": "http://127.0.0.1:8787",
+  "mode": "users",
+  "vus": 3,
+  "iterations": 5,
+  "scenarios": [{
+    "name": "Search",
+    "csv": {
+      "name": "people.csv",
+      "content": "Full Name,item\nalice,tea\nbob,coffee\ncharlie,cake\n",
+      "columns": {"Full Name": "username", "item": "item"},
+      "sharing": "shared",
+      "on_eof": "stop_user"
+    },
+    "steps": [{"name": "Search", "url": "/work?name={{username|url}}&item={{item|url}}"}]
+  }]
+}
